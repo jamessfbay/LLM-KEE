@@ -1,0 +1,55 @@
+[storage]
+workspace = "."
+
+[kg]
+# Enable this to apply approved proposals directly to LLM-KG instead of dry-run.
+enable_direct_adapter = false
+workspace = "../LLM-KG"
+project_path = "../LLM-KG"
+
+[skills]
+register_defaults = true
+
+[actions]
+register_defaults = true
+
+[workflows]
+record_step_outputs = true
+
+[mape]
+enabled = true
+
+[evolution]
+enabled = true
+require_evidence_for_versions = false
+
+[evaluation]
+enable_rule_engine = true
+enable_evidence_checker = true
+enable_conflict_checker = true
+enable_behavior_signal = true
+min_llm_judge_agreement = 0.67
+
+[[evaluation.judges]]
+name = "openai_judge"
+provider = "mock"
+model = "gpt-4.1-mini"
+enabled = true
+weight = 1.0
+api_key_env = "OPENAI_API_KEY"
+
+[[evaluation.judges]]
+name = "anthropic_judge"
+provider = "mock"
+model = "claude-3-5-sonnet"
+enabled = true
+weight = 1.0
+api_key_env = "ANTHROPIC_API_KEY"
+
+[[evaluation.judges]]
+name = "gemini_judge"
+provider = "mock"
+model = "gemini-1.5-pro"
+enabled = true
+weight = 1.0
+api_key_env = "GEMINI_API_KEY"

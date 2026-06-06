@@ -1,0 +1,221 @@
+from typing import Any
+
+from pydantic import Field
+
+from llm_kee.models.base import StoredModel, new_id
+
+
+class SourceRecord(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("src"))
+    title: str
+    uri: str | None = None
+    source_type: str = "unknown"
+    observed_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceNode(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("ev"))
+    source_id: str
+    quote: str
+    citation: str | None = None
+    claim_text: str | None = None
+    source_type: str = "unknown"
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    verification_status: str = "unverified"
+    observed_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClaimNode(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("claim"))
+    subject: str
+    predicate: str
+    object: str
+    qualifier: dict[str, Any] = Field(default_factory=dict)
+    status: str = "active"
+    evidence_ids: list[str] = Field(default_factory=list)
+    conflict_ids: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class EntityNode(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("ent"))
+    entity_type: str
+    canonical_name: str
+    aliases: list[str] = Field(default_factory=list)
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class RelationEdge(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("rel"))
+    subject_id: str
+    predicate: str
+    object_id: str
+    claim_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    valid_from: str | None = None
+    valid_to: str | None = None
+
+
+class SkillDefinition(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("skill"))
+    name: str
+    description: str
+    use_cases: list[str] = Field(default_factory=list)
+    inputs: list[str] = Field(default_factory=list)
+    outputs: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    failure_modes: list[str] = Field(default_factory=list)
+    evaluation_metrics: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class SkillPlan(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("skill_plan"))
+    task_type: str
+    skill_ids: list[str] = Field(default_factory=list)
+    rationale: str
+    input_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowStep(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("step"))
+    order: int
+    skill_id: str
+    name: str
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    status: str = "pending"
+    output: dict[str, Any] | None = None
+    error: str | None = None
+
+
+class WorkflowDefinition(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("workflow"))
+    task_type: str
+    skill_sequence: list[str] = Field(default_factory=list)
+    constraints: dict[str, Any] = Field(default_factory=dict)
+    input_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRun(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("run"))
+    workflow_id: str
+    task_type: str
+    steps: list[WorkflowStep] = Field(default_factory=list)
+    status: str = "pending"
+    output: dict[str, Any] = Field(default_factory=dict)
+
+
+class ActionDefinition(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("action"))
+    action_type: str
+    name: str
+    description: str
+    required_skills: list[str] = Field(default_factory=list)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class ActionArtifact(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("artifact"))
+    action_run_id: str
+    artifact_type: str
+    title: str
+    content: dict[str, Any] = Field(default_factory=dict)
+    evidence_ids: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ActionRun(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("action_run"))
+    action_type: str
+    input_payload: dict[str, Any] = Field(default_factory=dict)
+    workflow_run_id: str | None = None
+    artifact_ids: list[str] = Field(default_factory=list)
+    status: str = "pending"
+    output: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetricResult(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("metric"))
+    name: str
+    score: float = Field(ge=0.0, le=1.0)
+    passed: bool
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ValidationResult(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("validation"))
+    target_type: str
+    target_id: str
+    valid: bool
+    metrics: list[MetricResult] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+
+
+class EvaluationRecord(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("eval_record"))
+    target_type: str
+    target_id: str
+    evaluator_name: str
+    metrics: list[MetricResult] = Field(default_factory=list)
+    decision: str = "review"
+    notes: str | None = None
+
+
+class ChangeSet(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("changeset"))
+    target_type: str
+    target_id: str
+    operation: str
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] = Field(default_factory=dict)
+    reason: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    proposal_id: str | None = None
+
+
+class KnowledgeVersion(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("version"))
+    target_type: str
+    target_id: str
+    version: int
+    valid_from: str | None = None
+    valid_to: str | None = None
+    status: str = "active"
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+    reason: str
+    supersedes_version_id: str | None = None
+
+
+class EvolutionEvent(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("evo"))
+    event_type: str
+    target_type: str
+    target_id: str
+    change_set_id: str
+    from_version_id: str | None = None
+    to_version_id: str | None = None
+    reason: str
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class MAPEObservation(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("obs"))
+    signal_ids: list[str] = Field(default_factory=list)
+    summary: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class MAPECycle(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("mape"))
+    observation_ids: list[str] = Field(default_factory=list)
+    analysis: dict[str, Any] = Field(default_factory=dict)
+    plan: dict[str, Any] = Field(default_factory=dict)
+    execution: dict[str, Any] = Field(default_factory=dict)
+    learned: dict[str, Any] = Field(default_factory=dict)
+    status: str = "completed"
