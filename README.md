@@ -22,6 +22,65 @@ Knowledge Graph + Evidence Graph + Skill Graph + Evaluation Graph + Evolution Gr
   -> MAPE-K learning cycles
 ```
 
+## System Flow
+
+```mermaid
+flowchart TD
+    A[Inputs: feedback, traces, graph signals, source changes] --> B[Learning Signals]
+    B --> C[Update Proposal Generator]
+    C --> D[Multi-Evaluator Layer]
+    D --> D1[Rule Engine]
+    D --> D2[Evidence Checker]
+    D --> D3[Conflict Checker]
+    D --> D4[Behavior Signal]
+    D --> D5[Configurable LLM Judges]
+    D1 --> E[Evaluation Aggregator]
+    D2 --> E
+    D3 --> E
+    D4 --> E
+    D5 --> E
+    E --> F[Learning Gate]
+    F -->|auto_apply / approved| G[Safe Apply Planner]
+    F -->|pending_review| H[Human Review]
+    F -->|need_more_evidence| I[Evidence Gap Queue]
+    F -->|conflict_review| J[Conflict Review]
+    F -->|reject| K[Audit Log]
+    H --> G
+    I --> B
+    J --> B
+    G --> L[LLM-KG Direct Adapter or Dry Run]
+    G --> M[Evolution Graph: ChangeSet, Version, Event]
+
+    N[Task / AI Action Request] --> O[Task Classifier]
+    O --> P[Skill Retriever]
+    P --> Q[Workflow Planner]
+    Q --> R[Workflow Executor]
+    R --> S[Action Artifact]
+    S --> T[Artifact Validation]
+    T --> C
+
+    U[MAPE-K Loop] --> U1[Monitor]
+    U1 --> U2[Analyze]
+    U2 --> U3[Plan]
+    U3 --> U4[Execute]
+    U4 --> U5[Learn]
+    U5 --> B
+
+    subgraph FiveGraph["Five-Graph Operating Layer"]
+      KG[Knowledge Graph]
+      EG[Evidence Graph]
+      SG[Skill Graph]
+      EVG[Evaluation Graph]
+      XG[Evolution Graph]
+    end
+
+    B -.reads/writes.-> KG
+    D -.checks.-> EG
+    P -.selects.-> SG
+    E -.records.-> EVG
+    M -.versions.-> XG
+```
+
 ## Current MVP
 
 - Python library and CLI for local knowledge-evolution workflows.
