@@ -2,7 +2,7 @@
 
 LLM-KEE is a controlled knowledge-evolution layer for LLM-based knowledge systems. It observes user feedback, reasoning traces, graph conflicts, weak evidence, and schema gaps, then converts them into auditable update proposals.
 
-The project implements the MVP loop from the product framework:
+The project implements the controlled knowledge-evolution loop from the product framework:
 
 ```text
 feedback / traces / graph signals
@@ -81,7 +81,7 @@ flowchart TD
     M -.versions.-> XG
 ```
 
-## Current MVP
+## Current Capabilities
 
 - Python library and CLI for local knowledge-evolution workflows.
 - Pydantic models for feedback, reasoning traces, learning signals, evaluation results, proposals, decisions, learned patterns, and schema suggestions.
@@ -137,6 +137,30 @@ Example `feedback.json`:
 ```
 
 ## AI Action Examples
+
+AI Actions are generated from governed knowledge signals, not from free-form model intent. In a real estate or city-planning workflow, those signals usually come from LLM-KG: evidence gaps, conflicting claims, low confidence facts, source updates, or reasoning traces that should become repeatable review work.
+
+Example product scenarios:
+
+- `generate_intelligence_pack`: create a source-linked project intelligence packet with verified facts, open source gaps, review questions, and citation-backed notes.
+- `rebuild_timeline`: reconstruct a public-record chronology from dated claims and evidence without treating it as a statutory deadline tracker.
+- `detect_missing_or_conflicting_information`: flag missing zoning/APN/application sources or conflicting project facts, then produce planner review questions instead of official determinations.
+
+For a housing project, an action can look like:
+
+```json
+{
+  "action_type": "detect_missing_or_conflicting_information",
+  "target_type": "project",
+  "target_id": "3980-el-camino-real",
+  "reason": "The plan set supports the unit count, but zoning/APN baseline evidence is still incomplete.",
+  "evidence_ids": ["ev_001"],
+  "allowed_output": "planner_review_note",
+  "requires_human_approval": true
+}
+```
+
+The expected output is an auditable artifact: what triggered the action, which evidence was used, what review question was produced, and whether a proposal should be sent through the learning gate before updating LLM-KG.
 
 List available AI Action definitions:
 
