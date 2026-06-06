@@ -6,6 +6,7 @@ from llm_kee.evaluation.evaluators import (
     EvidenceChecker,
     RuleEngine,
 )
+from llm_kee.evaluation.llm_judge import LLMJudge
 
 __all__ = [
     "BehaviorSignalEvaluator",
@@ -13,5 +14,6 @@ __all__ = [
     "DeterministicLLMJudge",
     "EvaluationAggregator",
     "EvidenceChecker",
+    "LLMJudge",
     "RuleEngine",
 ]

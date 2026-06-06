@@ -25,10 +25,10 @@ class EvaluationAggregator:
         recommendation = EvaluationDecision.PASS
         if EvaluationDecision.FAIL in decisions:
             recommendation = EvaluationDecision.FAIL
-        elif EvaluationDecision.CONFLICT in decisions:
-            recommendation = EvaluationDecision.CONFLICT
         elif EvaluationDecision.NEED_MORE_EVIDENCE in decisions:
             recommendation = EvaluationDecision.NEED_MORE_EVIDENCE
+        elif EvaluationDecision.CONFLICT in decisions:
+            recommendation = EvaluationDecision.CONFLICT
         elif final_score < 0.7 or EvaluationDecision.REVIEW in decisions:
             recommendation = EvaluationDecision.REVIEW
         else:

@@ -52,6 +52,15 @@ def main() -> None:
     action_show_artifact_parser = action_subparsers.add_parser("show-artifact", help="Show one action artifact")
     action_show_artifact_parser.add_argument("artifact_id")
 
+    monitor_parser = subparsers.add_parser("monitor", help="Monitor files and create learning signals")
+    monitor_subparsers = monitor_parser.add_subparsers(dest="monitor_command", required=True)
+    monitor_scan_parser = monitor_subparsers.add_parser("scan", help="Scan a path and persist monitor signals")
+    monitor_scan_parser.add_argument("path")
+    monitor_diff_parser = monitor_subparsers.add_parser("diff", help="Preview monitor events without persisting")
+    monitor_diff_parser.add_argument("path")
+    monitor_signals_parser = monitor_subparsers.add_parser("signals", help="Scan a path and print learning signals")
+    monitor_signals_parser.add_argument("path")
+
     workflow_parser = subparsers.add_parser("workflow", help="Plan or run workflows")
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
     workflow_plan_parser = workflow_subparsers.add_parser("plan", help="Plan a workflow from a task JSON file")
@@ -69,7 +78,10 @@ def main() -> None:
     mape_parser = subparsers.add_parser("mape", help="Run MAPE-K cycles")
     mape_subparsers = mape_parser.add_subparsers(dest="mape_command", required=True)
     mape_run_parser = mape_subparsers.add_parser("run", help="Run a MAPE cycle from a JSON array of learning signals")
-    mape_run_parser.add_argument("json_file")
+    mape_run_parser.add_argument("json_file", nargs="?")
+    mape_run_parser.add_argument("--from-path", dest="from_path", default=None)
+    mape_show_parser = mape_subparsers.add_parser("show", help="Show a MAPE cycle")
+    mape_show_parser.add_argument("cycle_id")
 
     feedback_parser = subparsers.add_parser(
         "feedback",
@@ -137,15 +149,31 @@ def main() -> None:
         workflow = WorkflowDefinition.model_validate(read_json(args.json_file))
         run = engine.run_workflow(workflow)
         print_json(run)
+    elif args.command == "monitor" and args.monitor_command == "scan":
+        print_json(engine.monitor_path(args.path))
+    elif args.command == "monitor" and args.monitor_command == "diff":
+        print_json(engine.monitor.diff(args.path))
+    elif args.command == "monitor" and args.monitor_command == "signals":
+        print_json(engine.monitor_path(args.path))
     elif args.command == "evolution" and args.evolution_command == "history":
         print_json(engine.evolution.history(args.target_id))
     elif args.command == "evolution" and args.evolution_command == "create":
         event = engine.create_evolution_event(ChangeSet.model_validate(read_json(args.json_file)))
         print_json(event)
     elif args.command == "mape" and args.mape_command == "run":
-        raw = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
-        signals = [LearningSignal.model_validate(item) for item in raw]
+        if args.from_path:
+            signals = engine.monitor_path(args.from_path)
+        elif args.json_file:
+            raw = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
+            signals = [LearningSignal.model_validate(item) for item in raw]
+        else:
+            raise SystemExit("mape run requires signals.json or --from-path PATH")
         print_json(engine.run_mape_cycle(signals))
+    elif args.command == "mape" and args.mape_command == "show":
+        cycle = engine.store.mape_cycles.get(args.cycle_id)
+        if not cycle:
+            raise SystemExit(f"MAPE cycle not found: {args.cycle_id}")
+        print_json(cycle)
     elif args.command == "feedback":
         feedback = UserFeedback.model_validate(read_json(args.json_file))
         saved_feedback, proposal = engine.accept_feedback(feedback)

@@ -1,10 +1,22 @@
+from llm_kee.mape.analyzer import MAPEAnalyzer
+from llm_kee.mape.executor import MAPEExecutor
+from llm_kee.mape.planner import MAPEPlanner
 from llm_kee.models import LearningSignal, MAPECycle, MAPEObservation
 from llm_kee.storage import KEEStore
 
 
 class MAPELoop:
-    def __init__(self, store: KEEStore) -> None:
+    def __init__(
+        self,
+        store: KEEStore,
+        analyzer: MAPEAnalyzer | None = None,
+        planner: MAPEPlanner | None = None,
+        executor: MAPEExecutor | None = None,
+    ) -> None:
         self.store = store
+        self.analyzer = analyzer or MAPEAnalyzer()
+        self.planner = planner or MAPEPlanner()
+        self.executor = executor
 
     def run(self, signals: list[LearningSignal]) -> MAPECycle:
         observation = MAPEObservation(
@@ -13,28 +25,24 @@ class MAPELoop:
             payload={"signals": [signal.model_dump(mode="json") for signal in signals]},
         )
         observation = self.store.mape_observations.upsert(observation)
-        analysis = {
-            "signal_count": len(signals),
-            "high_priority_count": sum(1 for signal in signals if signal.priority >= 8),
-            "signal_types": sorted({signal.signal_type for signal in signals}),
-        }
-        plan = {
-            "recommended_action": "generate_update_proposals" if signals else "no_op",
-            "requires_review": analysis["high_priority_count"] > 0,
-        }
-        execution = {
-            "status": "planned",
-            "created_proposals": [],
-        }
+        analysis = self.store.mape_analyses.upsert(self.analyzer.analyze(signals))
+        plan = self.store.mape_plans.upsert(self.planner.plan(analysis, signals))
+        execution = self.executor.execute(plan) if self.executor else None
         learned = {
-            "notes": "MAPE skeleton recorded observation, analysis, plan, execution, and learn phases.",
+            "notes": "MAPE cycle analyzed signals, planned actions, executed configured steps, and recorded resulting IDs.",
         }
         cycle = MAPECycle(
             observation_ids=[observation.id],
-            analysis=analysis,
-            plan=plan,
-            execution=execution,
+            analysis=analysis.model_dump(mode="json"),
+            plan=plan.model_dump(mode="json"),
+            execution=execution.model_dump(mode="json") if execution else {"status": "planned"},
             learned=learned,
+            action_run_ids=execution.action_run_ids if execution else [],
+            artifact_ids=execution.artifact_ids if execution else [],
+            proposal_ids=execution.proposal_ids if execution else [],
+            evaluation_ids=execution.evaluation_ids if execution else [],
+            decision_ids=execution.decision_ids if execution else [],
+            evolution_event_ids=execution.evolution_event_ids if execution else [],
             status="completed",
         )
         return self.store.mape_cycles.upsert(cycle)

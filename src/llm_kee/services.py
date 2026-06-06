@@ -9,15 +9,16 @@ from llm_kee.config import Settings
 from llm_kee.evaluation import (
     BehaviorSignalEvaluator,
     ConflictChecker,
-    DeterministicLLMJudge,
     EvaluationAggregator,
     EvidenceChecker,
+    LLMJudge,
     RuleEngine,
 )
 from llm_kee.evolution import EvolutionService
 from llm_kee.gates import LearningGate
 from llm_kee.integrations import KGClient, LLMKGClient
-from llm_kee.mape import MAPELoop
+from llm_kee.mape import MAPEAnalyzer, MAPEExecutor, MAPELoop, MAPEPlanner
+from llm_kee.monitoring import MonitorService
 from llm_kee.models import (
     ActionDefinition,
     ActionRun,
@@ -28,6 +29,9 @@ from llm_kee.models import (
     LearnedPattern,
     LearningDecisionType,
     LearningSignal,
+    MAPEAnalysis,
+    MAPEExecution,
+    MAPEPlan,
     ProposalStatus,
     ReasoningTrace,
     ReviewStatus,
@@ -67,12 +71,27 @@ class KEEEngine:
             self.workflow_executor,
         )
         self.evolution = EvolutionService(self.store)
-        self.mape = MAPELoop(self.store)
+        self.monitor = MonitorService(self.store)
+        self.mape_analyzer = MAPEAnalyzer()
+        self.mape_planner = MAPEPlanner()
         self._ensure_defaults()
         self.evaluators = self._build_evaluators()
         self.aggregator = EvaluationAggregator()
         self.gate = LearningGate()
         self.safe_apply = SafeApplyService(self._build_kg_client())
+        self.mape_executor = MAPEExecutor(
+            self.store,
+            self.action_runner,
+            self.proposal_generator,
+            self.run_evaluations,
+            self.validate_artifact,
+        )
+        self.mape = MAPELoop(
+            self.store,
+            analyzer=self.mape_analyzer,
+            planner=self.mape_planner,
+            executor=self.mape_executor,
+        )
 
     def _ensure_defaults(self) -> None:
         if self.settings.skills.register_defaults:
@@ -103,7 +122,7 @@ class KEEEngine:
         if config.enable_behavior_signal:
             evaluators.append(BehaviorSignalEvaluator())
         evaluators.extend(
-            DeterministicLLMJudge(judge)
+            LLMJudge(judge)
             for judge in config.judges
             if judge.enabled
         )
@@ -145,6 +164,25 @@ class KEEEngine:
     def run_action(self, action_type: str, input_payload: dict[str, Any]) -> ActionRun:
         return self.action_runner.run(action_type, input_payload)
 
+    def monitor_path(self, path: Any) -> list[LearningSignal]:
+        return self.monitor.scan(path)
+
+    def analyze_signals(self, signals: list[LearningSignal]) -> MAPEAnalysis:
+        analysis = self.mape_analyzer.analyze(signals)
+        return self.store.mape_analyses.upsert(analysis)
+
+    def plan_mape_actions(self, analysis: MAPEAnalysis) -> MAPEPlan:
+        signals = [
+            signal
+            for signal in self.store.signals.list()
+            if signal.id in set(analysis.signal_ids)
+        ]
+        plan = self.mape_planner.plan(analysis, signals)
+        return self.store.mape_plans.upsert(plan)
+
+    def execute_mape_plan(self, plan: MAPEPlan) -> MAPEExecution:
+        return self.mape_executor.execute(plan)
+
     def validate_artifact(self, artifact_id: str) -> ValidationResult | None:
         artifact = self.store.action_artifacts.get(artifact_id)
         if not artifact:
@@ -162,7 +200,8 @@ class KEEEngine:
         return self.evolution.create_event(change_set)
 
     def run_mape_cycle(self, signal_batch: list[LearningSignal]) -> object:
-        return self.mape.run(signal_batch)
+        signals = [self.store.signals.upsert(signal) for signal in signal_batch]
+        return self.mape.run(signals)
 
     def save_trace(self, trace: ReasoningTrace) -> ReasoningTrace:
         self.store.traces.upsert(trace)

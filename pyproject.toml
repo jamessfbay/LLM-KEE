@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+llm = ["openai>=1.0"]
 
 [project.scripts]
 llm-kee = "llm_kee.cli:main"

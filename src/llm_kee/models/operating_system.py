@@ -211,6 +211,58 @@ class MAPEObservation(StoredModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class MonitorEvent(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("mon_event"))
+    root_path: str
+    path: str
+    event_type: str
+    old_hash: str | None = None
+    new_hash: str | None = None
+    old_mtime: float | None = None
+    new_mtime: float | None = None
+    signal_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MonitorSnapshot(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("mon_snapshot"))
+    root_path: str
+    files: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    event_ids: list[str] = Field(default_factory=list)
+
+
+class MAPEAnalysis(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("mape_analysis"))
+    signal_ids: list[str] = Field(default_factory=list)
+    signal_count: int = 0
+    high_priority_count: int = 0
+    signal_types: list[str] = Field(default_factory=list)
+    impact_level: str = "low"
+    recommended_actions: list[str] = Field(default_factory=list)
+    requires_review: bool = False
+    rationale: str = ""
+
+
+class MAPEPlan(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("mape_plan"))
+    analysis_id: str
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+    requires_review: bool = False
+
+
+class MAPEExecution(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("mape_exec"))
+    plan_id: str
+    status: str = "completed"
+    action_run_ids: list[str] = Field(default_factory=list)
+    artifact_ids: list[str] = Field(default_factory=list)
+    proposal_ids: list[str] = Field(default_factory=list)
+    evaluation_ids: list[str] = Field(default_factory=list)
+    decision_ids: list[str] = Field(default_factory=list)
+    evolution_event_ids: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
 class MAPECycle(StoredModel):
     id: str = Field(default_factory=lambda: new_id("mape"))
     observation_ids: list[str] = Field(default_factory=list)
@@ -218,4 +270,10 @@ class MAPECycle(StoredModel):
     plan: dict[str, Any] = Field(default_factory=dict)
     execution: dict[str, Any] = Field(default_factory=dict)
     learned: dict[str, Any] = Field(default_factory=dict)
+    action_run_ids: list[str] = Field(default_factory=list)
+    artifact_ids: list[str] = Field(default_factory=list)
+    proposal_ids: list[str] = Field(default_factory=list)
+    evaluation_ids: list[str] = Field(default_factory=list)
+    decision_ids: list[str] = Field(default_factory=list)
+    evolution_event_ids: list[str] = Field(default_factory=list)
     status: str = "completed"

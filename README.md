@@ -92,7 +92,9 @@ flowchart TD
 - Safe apply planner with dry-run fallback and an optional direct LLM-KG Python adapter for approved proposals.
 - Generic five-graph models for sources, evidence, claims, entities, relations, skills, workflows, actions, evaluations, versions, and evolution events.
 - Default skill/action registries for evidence retrieval, timeline reconstruction, evidence evaluation, ontology engineering, intelligence packs, timeline rebuilds, and missing/conflict detection.
-- MAPE-K skeleton for monitor/analyze/plan/execute/learn control loops.
+- Snapshot file monitor that turns local source changes into learning signals.
+- Executable MAPE-K loop that analyzes signals, plans actions/workflows, runs AI Actions, validates artifacts, creates proposals, evaluates them, and records gate decisions.
+- Deterministic mock LLM judge plus optional OpenAI judge routing with safe fallback when the SDK or API key is missing.
 
 ## Install
 
@@ -115,10 +117,15 @@ llm-kee action run generate_intelligence_pack input.json
 llm-kee action list-runs
 llm-kee action artifacts
 llm-kee action show-artifact artifact_123
+llm-kee monitor scan ./raw_sources
+llm-kee monitor diff ./raw_sources
+llm-kee monitor signals ./raw_sources
 llm-kee workflow plan task.json
 llm-kee workflow run workflow.json
 llm-kee evolution history claim_123
 llm-kee mape run signals.json
+llm-kee mape run --from-path ./raw_sources
+llm-kee mape show mape_cycle_123
 ```
 
 `llm-kee apply` mutates LLM-KG only when the proposal is approved and the direct adapter is enabled. Other proposal states are rejected before apply.
@@ -211,6 +218,9 @@ results, aggregate = engine.run_evaluations(proposal)
 workflow = engine.plan_workflow({"task_type": "timeline_reconstruction", "target_id": "claim_123"})
 workflow_run = engine.run_workflow(workflow)
 action_run = engine.run_action("generate_intelligence_pack", {"target_id": "claim_123", "evidence_ids": ["ev_1"]})
+
+signals = engine.monitor_path(Path("./raw_sources"))
+cycle = engine.run_mape_cycle(signals)
 ```
 
 ## Environment
@@ -260,6 +270,7 @@ provider = "mock"
 model = "gpt-4.1-mini"
 enabled = true
 weight = 1.0
+api_key_env = "OPENAI_API_KEY"
 
 [[evaluation.judges]]
 name = "anthropic_judge"
@@ -269,4 +280,4 @@ enabled = true
 weight = 1.0
 ```
 
-The current judge provider is deterministic `mock`, so cross-judge evaluation is offline and testable. Real OpenAI/Anthropic/Gemini adapters can be added behind the same `JudgeConfig` structure.
+Use `provider = "mock"` for deterministic offline tests. Use `provider = "openai"` with `pip install -e ".[llm]"` and `api_key_env = "OPENAI_API_KEY"` for the first real LLM judge. If the environment variable or SDK is missing, LLM-KEE records a review concern and falls back safely instead of interrupting the MAPE-K cycle. Anthropic and Gemini remain reserved provider names behind the same `JudgeConfig` structure.

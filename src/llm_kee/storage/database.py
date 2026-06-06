@@ -17,7 +17,12 @@ from llm_kee.models import (
     LearningDecision,
     LearningSignal,
     MAPECycle,
+    MAPEAnalysis,
+    MAPEExecution,
     MAPEObservation,
+    MAPEPlan,
+    MonitorEvent,
+    MonitorSnapshot,
     RelationEdge,
     ReasoningTrace,
     SchemaSuggestion,
@@ -63,4 +68,9 @@ class KEEStore:
         self.knowledge_versions = JsonRepository(root / "knowledge_versions.json", KnowledgeVersion)
         self.evolution_events = JsonRepository(root / "evolution_events.json", EvolutionEvent)
         self.mape_observations = JsonRepository(root / "mape_observations.json", MAPEObservation)
+        self.monitor_snapshots = JsonRepository(root / "monitor_snapshots.json", MonitorSnapshot)
+        self.monitor_events = JsonRepository(root / "monitor_events.json", MonitorEvent)
+        self.mape_analyses = JsonRepository(root / "mape_analyses.json", MAPEAnalysis)
+        self.mape_plans = JsonRepository(root / "mape_plans.json", MAPEPlan)
+        self.mape_executions = JsonRepository(root / "mape_executions.json", MAPEExecution)
         self.mape_cycles = JsonRepository(root / "mape_cycles.json", MAPECycle)
