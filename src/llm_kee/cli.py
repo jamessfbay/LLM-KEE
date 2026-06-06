@@ -45,6 +45,12 @@ def main() -> None:
     action_run_parser = action_subparsers.add_parser("run", help="Run an action with JSON input")
     action_run_parser.add_argument("action_type")
     action_run_parser.add_argument("json_file")
+    action_list_runs_parser = action_subparsers.add_parser("list-runs", help="List executed action instances")
+    action_list_runs_parser.add_argument("--type", dest="action_type", default=None)
+    action_artifacts_parser = action_subparsers.add_parser("artifacts", help="List action artifacts")
+    action_artifacts_parser.add_argument("--run-id", dest="run_id", default=None)
+    action_show_artifact_parser = action_subparsers.add_parser("show-artifact", help="Show one action artifact")
+    action_show_artifact_parser.add_argument("artifact_id")
 
     workflow_parser = subparsers.add_parser("workflow", help="Plan or run workflows")
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
@@ -109,6 +115,21 @@ def main() -> None:
     elif args.command == "action" and args.action_command == "run":
         run = engine.run_action(args.action_type, read_json(args.json_file))
         print_json(run)
+    elif args.command == "action" and args.action_command == "list-runs":
+        runs = engine.store.action_runs.list()
+        if args.action_type:
+            runs = [run for run in runs if run.action_type == args.action_type]
+        print_json(runs)
+    elif args.command == "action" and args.action_command == "artifacts":
+        artifacts = engine.store.action_artifacts.list()
+        if args.run_id:
+            artifacts = [artifact for artifact in artifacts if artifact.action_run_id == args.run_id]
+        print_json(artifacts)
+    elif args.command == "action" and args.action_command == "show-artifact":
+        artifact = engine.store.action_artifacts.get(args.artifact_id)
+        if not artifact:
+            raise SystemExit(f"Artifact not found: {args.artifact_id}")
+        print_json(artifact)
     elif args.command == "workflow" and args.workflow_command == "plan":
         workflow = engine.plan_workflow(read_json(args.json_file))
         print_json(workflow)

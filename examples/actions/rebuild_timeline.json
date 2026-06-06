@@ -1,0 +1,11 @@
+{
+  "task_type": "timeline_reconstruction",
+  "target_id": "demo_project_alpha",
+  "question": "Rebuild the evidence-linked timeline for Demo Project Alpha.",
+  "evidence_ids": ["ev_demo_staff_report", "ev_demo_agenda", "ev_demo_meeting_minutes"],
+  "events": [
+    {"label": "Staff report recommends approval", "evidence_id": "ev_demo_staff_report"},
+    {"label": "Council agenda schedules hearing", "evidence_id": "ev_demo_agenda"},
+    {"label": "Meeting minutes continue the item", "evidence_id": "ev_demo_meeting_minutes"}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "task_type": "intelligence_pack",
+  "target_id": "demo_project_alpha",
+  "question": "Generate a source-linked intelligence pack for Demo Project Alpha.",
+  "evidence_ids": ["ev_demo_staff_report", "ev_demo_meeting_minutes"],
+  "domain": "generic_demo"
+}

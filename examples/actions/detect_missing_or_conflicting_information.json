@@ -1,0 +1,10 @@
+{
+  "task_type": "missing_or_conflict_detection",
+  "target_id": "demo_project_alpha",
+  "question": "Find missing or conflicting information for Demo Project Alpha.",
+  "evidence_ids": ["ev_demo_staff_report", "ev_demo_meeting_minutes"],
+  "known_claims": [
+    "Staff report recommends approval.",
+    "Meeting minutes show council action was delayed."
+  ]
+}

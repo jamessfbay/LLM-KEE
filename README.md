@@ -112,6 +112,9 @@ llm-kee apply prop_123
 llm-kee skills list
 llm-kee actions list
 llm-kee action run generate_intelligence_pack input.json
+llm-kee action list-runs
+llm-kee action artifacts
+llm-kee action show-artifact artifact_123
 llm-kee workflow plan task.json
 llm-kee workflow run workflow.json
 llm-kee evolution history claim_123
@@ -131,6 +134,32 @@ Example `feedback.json`:
   "new_value": {"text": "A requires C", "evidence_ids": ["ev_1"]},
   "comment": "The cited source names C, not B."
 }
+```
+
+## AI Action Examples
+
+List available AI Action definitions:
+
+```bash
+llm-kee actions list
+```
+
+Run the built-in examples:
+
+```bash
+llm-kee action run generate_intelligence_pack examples/actions/generate_intelligence_pack.json
+llm-kee action run rebuild_timeline examples/actions/rebuild_timeline.json
+llm-kee action run detect_missing_or_conflicting_information examples/actions/detect_missing_or_conflicting_information.json
+```
+
+List executed AI Action instances and inspect their artifacts:
+
+```bash
+llm-kee action list-runs
+llm-kee action list-runs --type rebuild_timeline
+llm-kee action artifacts
+llm-kee action artifacts --run-id action_run_123
+llm-kee action show-artifact artifact_123
 ```
 
 ## Python API
