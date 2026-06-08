@@ -5,13 +5,22 @@ from llm_kee.models import (
     ActionDefinition,
     ActionRun,
     AggregatedEvaluation,
+    AgentImprovementCycle,
     ChangeSet,
     ClaimNode,
+    ConversationIntent,
     EntityNode,
     EvaluationRecord,
     EvaluationResult,
     EvidenceNode,
     EvolutionEvent,
+    FailureCluster,
+    FailureRecord,
+    ImprovementAction,
+    ImprovementProposal,
+    ImprovementReview,
+    IntentPattern,
+    KnowledgeEvolutionCycle,
     KnowledgeVersion,
     LearnedPattern,
     LearningDecision,
@@ -28,7 +37,9 @@ from llm_kee.models import (
     SchemaSuggestion,
     SkillDefinition,
     SkillPlan,
+    SkillSelectionCycle,
     SourceRecord,
+    TaskIntent,
     UpdateProposal,
     UserFeedback,
     ValidationResult,
@@ -74,3 +85,26 @@ class KEEStore:
         self.mape_plans = JsonRepository(root / "mape_plans.json", MAPEPlan)
         self.mape_executions = JsonRepository(root / "mape_executions.json", MAPEExecution)
         self.mape_cycles = JsonRepository(root / "mape_cycles.json", MAPECycle)
+        self.intent_patterns = JsonRepository(root / "intent_patterns.json", IntentPattern)
+        self.task_intents = JsonRepository(root / "task_intents.json", TaskIntent)
+        self.conversation_intents = JsonRepository(root / "conversation_intents.json", ConversationIntent)
+        self.failure_records = JsonRepository(root / "failure_records.json", FailureRecord)
+        self.failure_clusters = JsonRepository(root / "failure_clusters.json", FailureCluster)
+        self.improvement_proposals = JsonRepository(
+            root / "improvement_proposals.json",
+            ImprovementProposal,
+        )
+        self.improvement_actions = JsonRepository(root / "improvement_actions.json", ImprovementAction)
+        self.improvement_reviews = JsonRepository(root / "improvement_reviews.json", ImprovementReview)
+        self.knowledge_evolution_cycles = JsonRepository(
+            root / "knowledge_evolution_cycles.json",
+            KnowledgeEvolutionCycle,
+        )
+        self.skill_selection_cycles = JsonRepository(
+            root / "skill_selection_cycles.json",
+            SkillSelectionCycle,
+        )
+        self.agent_improvement_cycles = JsonRepository(
+            root / "agent_improvement_cycles.json",
+            AgentImprovementCycle,
+        )

@@ -1,0 +1,7 @@
+{
+  "task_type": "timeline_reconstruction",
+  "question": "Rebuild the approval timeline for this project.",
+  "target_type": "project",
+  "target_id": "156-california-avenue",
+  "evidence_ids": ["ev_staff_report_2026_06"]
+}

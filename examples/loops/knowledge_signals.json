@@ -1,0 +1,13 @@
+[
+  {
+    "signal_type": "new_source",
+    "source_id": "staff_report_2026_06",
+    "summary": "New staff report appeared for project review.",
+    "payload": {
+      "target_type": "project",
+      "target_id": "156-california-avenue",
+      "evidence_ids": ["ev_staff_report_2026_06"]
+    },
+    "priority": 8
+  }
+]

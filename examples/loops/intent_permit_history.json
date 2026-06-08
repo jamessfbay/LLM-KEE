@@ -1,0 +1,6 @@
+{
+  "utterance": "Find permit history for this parcel and flag missing permit sources.",
+  "target_type": "project",
+  "target_id": "156-california-avenue",
+  "domain": "housing_project_intelligence"
+}

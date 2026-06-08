@@ -1,6 +1,6 @@
 # LLM-KEE (Knowledge Evolution Engine)
 
-LLM-KEE is a controlled knowledge-evolution layer for LLM-based knowledge systems. It observes user feedback, reasoning traces, graph conflicts, weak evidence, and schema gaps, then converts them into auditable update proposals.
+LLM-KEE is a self-improving knowledge engine for LLM-based systems. It helps an AI system understand user intent, ground work in evidence, evolve knowledge safely, and improve from agent failures.
 
 The project implements the controlled knowledge-evolution loop from the product framework:
 
@@ -13,13 +13,14 @@ feedback / traces / graph signals
   -> review or safe apply to LLM-KG
 ```
 
-It also provides a generic five-graph operating layer:
+It provides a generic eight-graph operating layer:
 
 ```text
 Knowledge Graph + Evidence Graph + Skill Graph + Evaluation Graph + Evolution Graph
-  -> Skill-guided workflows
-  -> AI Actions
-  -> MAPE-K learning cycles
++ Intent Graph + Failure Graph + Improvement Graph
+  -> Knowledge Evolution Loop
+  -> Skill Selection Loop
+  -> Agent Improvement Loop
 ```
 
 ## System Flow
@@ -66,12 +67,24 @@ flowchart TD
     U4 --> U5[Learn]
     U5 --> B
 
-    subgraph FiveGraph["Five-Graph Operating Layer"]
+    V[Conversation / Task] --> W[Intent Detector]
+    W --> IG
+    R --> Y[Failure Detector]
+    D --> Y
+    Y --> Z[Failure Graph]
+    Z --> AA[Improvement Proposal]
+    AA --> AB[Improvement Graph]
+    AB -->|human review| P
+
+    subgraph EightGraph["Eight-Graph Operating Layer"]
       KG[Knowledge Graph]
       EG[Evidence Graph]
       SG[Skill Graph]
       EVG[Evaluation Graph]
       XG[Evolution Graph]
+      IG[Intent Graph]
+      FG[Failure Graph]
+      IMG[Improvement Graph]
     end
 
     B -.reads/writes.-> KG
@@ -79,6 +92,9 @@ flowchart TD
     P -.selects.-> SG
     E -.records.-> EVG
     M -.versions.-> XG
+    W -.records.-> IG
+    Y -.records.-> FG
+    AA -.records.-> IMG
 ```
 
 ## Current Capabilities
@@ -90,10 +106,12 @@ flowchart TD
 - Multi-evaluator layer with rule, evidence, conflict, behavior, and configurable LLM-judge evaluators.
 - Learning Gate decisions: `auto_apply`, `pending_review`, `need_more_evidence`, `conflict_review`, and `reject`.
 - Safe apply planner with dry-run fallback and an optional direct LLM-KG Python adapter for approved proposals.
-- Generic five-graph models for sources, evidence, claims, entities, relations, skills, workflows, actions, evaluations, versions, and evolution events.
+- Generic eight-graph models for knowledge, evidence, skills, evaluation, evolution, intent, failures, and improvements.
 - Default skill/action registries for evidence retrieval, timeline reconstruction, evidence evaluation, ontology engineering, intelligence packs, timeline rebuilds, and missing/conflict detection.
 - Snapshot file monitor that turns local source changes into learning signals.
 - Executable MAPE-K loop that analyzes signals, plans actions/workflows, runs AI Actions, validates artifacts, creates proposals, evaluates them, and records gate decisions.
+- Dedicated Knowledge Evolution, Skill Selection, and Agent Improvement loops.
+- Deterministic intent detection and reviewable improvement proposals for missing sources, low evidence, skill routing issues, workflow errors, conflicts, and judge disagreement.
 - Deterministic mock LLM judge plus optional OpenAI judge routing with safe fallback when the SDK or API key is missing.
 
 ## Install
@@ -126,6 +144,15 @@ llm-kee evolution history claim_123
 llm-kee mape run signals.json
 llm-kee mape run --from-path ./raw_sources
 llm-kee mape show mape_cycle_123
+llm-kee intents detect input.json
+llm-kee intents list
+llm-kee failures record input.json
+llm-kee failures list
+llm-kee improvements propose failure_123
+llm-kee improvements review improvement_123 --approve
+llm-kee loops knowledge run signals.json
+llm-kee loops skill run task.json
+llm-kee loops agent run conversation.json
 ```
 
 `llm-kee apply` mutates LLM-KG only when the proposal is approved and the direct adapter is enabled. Other proposal states are rejected before apply.
@@ -193,6 +220,16 @@ llm-kee action artifacts --run-id action_run_123
 llm-kee action show-artifact artifact_123
 ```
 
+Run the self-improving loop examples:
+
+```bash
+llm-kee intents detect examples/loops/intent_permit_history.json
+llm-kee failures record examples/loops/failure_missing_source.json
+llm-kee loops knowledge run examples/loops/knowledge_signals.json
+llm-kee loops skill run examples/loops/skill_timeline_task.json
+llm-kee loops agent run examples/loops/agent_improvement_conversation.json
+```
+
 ## Python API
 
 ```python
@@ -221,6 +258,14 @@ action_run = engine.run_action("generate_intelligence_pack", {"target_id": "clai
 
 signals = engine.monitor_path(Path("./raw_sources"))
 cycle = engine.run_mape_cycle(signals)
+
+intent = engine.detect_intent({"utterance": "Find permit history for this parcel."})
+failure = engine.record_failure({"failure_type": "missing_source", "summary": "Permit source missing."})
+improvement = engine.propose_improvement(failure.id)
+
+knowledge_cycle = engine.run_knowledge_evolution(signals)
+skill_cycle = engine.run_skill_selection({"task_type": "timeline_reconstruction", "target_id": "claim_123"})
+agent_cycle = engine.run_agent_improvement({"utterance": "Why is permit history missing?", "failure_type": "missing_source"})
 ```
 
 ## Environment
@@ -256,6 +301,22 @@ enabled = true
 [evolution]
 enabled = true
 require_evidence_for_versions = false
+
+[intent]
+register_defaults = true
+detector_provider = "deterministic"
+
+[failures]
+enabled = true
+
+[improvements]
+enabled = true
+require_review = true
+
+[loops]
+knowledge_enabled = true
+skill_enabled = true
+agent_enabled = true
 
 [evaluation]
 enable_rule_engine = true

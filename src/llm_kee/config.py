@@ -56,6 +56,26 @@ class EvolutionConfig(BaseModel):
     require_evidence_for_versions: bool = False
 
 
+class IntentConfig(BaseModel):
+    register_defaults: bool = True
+    detector_provider: str = "deterministic"
+
+
+class FailuresConfig(BaseModel):
+    enabled: bool = True
+
+
+class ImprovementsConfig(BaseModel):
+    enabled: bool = True
+    require_review: bool = True
+
+
+class LoopsConfig(BaseModel):
+    knowledge_enabled: bool = True
+    skill_enabled: bool = True
+    agent_enabled: bool = True
+
+
 class Settings(BaseModel):
     workspace: Path = Path(".")
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
@@ -65,6 +85,10 @@ class Settings(BaseModel):
     workflows: WorkflowsConfig = Field(default_factory=WorkflowsConfig)
     mape: MAPEConfig = Field(default_factory=MAPEConfig)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
+    intent: IntentConfig = Field(default_factory=IntentConfig)
+    failures: FailuresConfig = Field(default_factory=FailuresConfig)
+    improvements: ImprovementsConfig = Field(default_factory=ImprovementsConfig)
+    loops: LoopsConfig = Field(default_factory=LoopsConfig)
 
 
 def load_settings() -> Settings:

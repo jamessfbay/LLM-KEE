@@ -8,7 +8,7 @@ from llm_kee.models import ChangeSet, LearningSignal, UserFeedback, WorkflowDefi
 from llm_kee.services import KEEEngine
 
 
-def read_json(path: str) -> dict[str, Any]:
+def read_json(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
@@ -83,6 +83,43 @@ def main() -> None:
     mape_show_parser = mape_subparsers.add_parser("show", help="Show a MAPE cycle")
     mape_show_parser.add_argument("cycle_id")
 
+    intents_parser = subparsers.add_parser("intents", help="Intent graph commands")
+    intents_subparsers = intents_parser.add_subparsers(dest="intents_command", required=True)
+    intents_detect_parser = intents_subparsers.add_parser("detect", help="Detect intent from JSON input")
+    intents_detect_parser.add_argument("json_file")
+    intents_subparsers.add_parser("list", help="List detected intents and default patterns")
+
+    failures_parser = subparsers.add_parser("failures", help="Failure graph commands")
+    failures_subparsers = failures_parser.add_subparsers(dest="failures_command", required=True)
+    failures_record_parser = failures_subparsers.add_parser("record", help="Record a failure from JSON input")
+    failures_record_parser.add_argument("json_file")
+    failures_subparsers.add_parser("list", help="List recorded failures")
+
+    improvements_parser = subparsers.add_parser("improvements", help="Improvement graph commands")
+    improvements_subparsers = improvements_parser.add_subparsers(dest="improvements_command", required=True)
+    improvements_propose_parser = improvements_subparsers.add_parser("propose", help="Propose an improvement for a failure")
+    improvements_propose_parser.add_argument("failure_id")
+    improvements_review_parser = improvements_subparsers.add_parser("review", help="Approve or reject an improvement")
+    improvements_review_parser.add_argument("proposal_id")
+    review_group = improvements_review_parser.add_mutually_exclusive_group(required=True)
+    review_group.add_argument("--approve", action="store_true")
+    review_group.add_argument("--reject", action="store_true")
+
+    loops_parser = subparsers.add_parser("loops", help="Run specialized improvement loops")
+    loops_subparsers = loops_parser.add_subparsers(dest="loop_name", required=True)
+    knowledge_parser = loops_subparsers.add_parser("knowledge", help="Knowledge evolution loop")
+    knowledge_subparsers = knowledge_parser.add_subparsers(dest="loop_command", required=True)
+    knowledge_run_parser = knowledge_subparsers.add_parser("run", help="Run knowledge loop from signals JSON")
+    knowledge_run_parser.add_argument("json_file")
+    skill_parser = loops_subparsers.add_parser("skill", help="Skill selection loop")
+    skill_subparsers = skill_parser.add_subparsers(dest="loop_command", required=True)
+    skill_run_parser = skill_subparsers.add_parser("run", help="Run skill loop from task JSON")
+    skill_run_parser.add_argument("json_file")
+    agent_parser = loops_subparsers.add_parser("agent", help="Agent improvement loop")
+    agent_subparsers = agent_parser.add_subparsers(dest="loop_command", required=True)
+    agent_run_parser = agent_subparsers.add_parser("run", help="Run agent loop from conversation JSON")
+    agent_run_parser.add_argument("json_file")
+
     feedback_parser = subparsers.add_parser(
         "feedback",
         help="Create feedback, interpret it, and generate an update proposal",
@@ -111,14 +148,22 @@ def main() -> None:
                 "traces": len(engine.store.traces.list()),
                 "proposals": len(engine.store.proposals.list()),
                 "evaluations": len(engine.store.evaluations.list()),
-                    "patterns": len(engine.store.patterns.list()),
-                    "schema_suggestions": len(engine.store.schema_suggestions.list()),
-                    "skills": len(engine.store.skills.list()),
-                    "actions": len(engine.store.action_definitions.list()),
-                    "workflow_runs": len(engine.store.workflow_runs.list()),
-                    "evolution_events": len(engine.store.evolution_events.list()),
-                    "mape_cycles": len(engine.store.mape_cycles.list()),
-                }
+                "patterns": len(engine.store.patterns.list()),
+                "schema_suggestions": len(engine.store.schema_suggestions.list()),
+                "skills": len(engine.store.skills.list()),
+                "actions": len(engine.store.action_definitions.list()),
+                "workflow_runs": len(engine.store.workflow_runs.list()),
+                "evolution_events": len(engine.store.evolution_events.list()),
+                "mape_cycles": len(engine.store.mape_cycles.list()),
+                "intent_patterns": len(engine.store.intent_patterns.list()),
+                "conversation_intents": len(engine.store.conversation_intents.list()),
+                "task_intents": len(engine.store.task_intents.list()),
+                "failure_records": len(engine.store.failure_records.list()),
+                "improvement_proposals": len(engine.store.improvement_proposals.list()),
+                "knowledge_evolution_cycles": len(engine.store.knowledge_evolution_cycles.list()),
+                "skill_selection_cycles": len(engine.store.skill_selection_cycles.list()),
+                "agent_improvement_cycles": len(engine.store.agent_improvement_cycles.list()),
+            }
         )
     elif args.command == "skills" and args.skills_command == "list":
         print_json(engine.store.skills.list())
@@ -174,6 +219,35 @@ def main() -> None:
         if not cycle:
             raise SystemExit(f"MAPE cycle not found: {args.cycle_id}")
         print_json(cycle)
+    elif args.command == "intents" and args.intents_command == "detect":
+        print_json(engine.detect_intent(read_json(args.json_file)))
+    elif args.command == "intents" and args.intents_command == "list":
+        print_json(
+            {
+                "patterns": engine.store.intent_patterns.list(),
+                "conversation_intents": engine.store.conversation_intents.list(),
+                "task_intents": engine.store.task_intents.list(),
+            }
+        )
+    elif args.command == "failures" and args.failures_command == "record":
+        print_json(engine.record_failure(read_json(args.json_file)))
+    elif args.command == "failures" and args.failures_command == "list":
+        print_json(engine.store.failure_records.list())
+    elif args.command == "improvements" and args.improvements_command == "propose":
+        print_json(engine.propose_improvement(args.failure_id))
+    elif args.command == "improvements" and args.improvements_command == "review":
+        if args.approve:
+            print_json(engine.approve_improvement(args.proposal_id))
+        else:
+            print_json(engine.reject_improvement(args.proposal_id))
+    elif args.command == "loops" and args.loop_name == "knowledge" and args.loop_command == "run":
+        raw = read_json(args.json_file)
+        signals = [LearningSignal.model_validate(item) for item in raw]
+        print_json(engine.run_knowledge_evolution(signals))
+    elif args.command == "loops" and args.loop_name == "skill" and args.loop_command == "run":
+        print_json(engine.run_skill_selection(read_json(args.json_file)))
+    elif args.command == "loops" and args.loop_name == "agent" and args.loop_command == "run":
+        print_json(engine.run_agent_improvement(read_json(args.json_file)))
     elif args.command == "feedback":
         feedback = UserFeedback.model_validate(read_json(args.json_file))
         saved_feedback, proposal = engine.accept_feedback(feedback)

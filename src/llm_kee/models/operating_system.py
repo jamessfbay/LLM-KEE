@@ -277,3 +277,122 @@ class MAPECycle(StoredModel):
     decision_ids: list[str] = Field(default_factory=list)
     evolution_event_ids: list[str] = Field(default_factory=list)
     status: str = "completed"
+
+
+class IntentPattern(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("intent_pattern"))
+    intent_type: str
+    description: str
+    trigger_terms: list[str] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
+    default_skill_ids: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskIntent(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("task_intent"))
+    intent_type: str
+    task_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    matched_pattern_ids: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    success_criteria: list[str] = Field(default_factory=list)
+
+
+class ConversationIntent(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("conv_intent"))
+    intent_type: str
+    utterance: str | None = None
+    task_type: str = "general_knowledge_task"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    matched_pattern_ids: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    success_criteria: list[str] = Field(default_factory=list)
+
+
+class FailureRecord(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("failure"))
+    failure_type: str
+    summary: str
+    severity: str = "medium"
+    intent_id: str | None = None
+    target_type: str | None = None
+    target_id: str | None = None
+    artifact_id: str | None = None
+    proposal_id: str | None = None
+    workflow_run_id: str | None = None
+    action_run_id: str | None = None
+    evidence_ids: list[str] = Field(default_factory=list)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    status: str = "open"
+
+
+class FailureCluster(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("failure_cluster"))
+    failure_type: str
+    failure_ids: list[str] = Field(default_factory=list)
+    summary: str
+    suggested_improvement_type: str | None = None
+    status: str = "open"
+
+
+class ImprovementAction(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("improvement_action"))
+    action_type: str
+    target_type: str | None = None
+    target_id: str | None = None
+    description: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ImprovementProposal(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("improvement"))
+    improvement_type: str
+    title: str
+    description: str
+    failure_ids: list[str] = Field(default_factory=list)
+    intent_ids: list[str] = Field(default_factory=list)
+    actions: list[ImprovementAction] = Field(default_factory=list)
+    status: str = "pending_review"
+    rationale: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ImprovementReview(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("improvement_review"))
+    improvement_id: str
+    decision: str
+    reviewer: str = "human"
+    notes: str | None = None
+
+
+class KnowledgeEvolutionCycle(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("knowledge_loop"))
+    signal_ids: list[str] = Field(default_factory=list)
+    mape_cycle_id: str | None = None
+    proposal_ids: list[str] = Field(default_factory=list)
+    evaluation_ids: list[str] = Field(default_factory=list)
+    decision_ids: list[str] = Field(default_factory=list)
+    evolution_event_ids: list[str] = Field(default_factory=list)
+    status: str = "completed"
+
+
+class SkillSelectionCycle(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("skill_loop"))
+    task_intent_id: str
+    skill_plan_id: str | None = None
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
+    evaluation_record_ids: list[str] = Field(default_factory=list)
+    improvement_proposal_ids: list[str] = Field(default_factory=list)
+    status: str = "completed"
+
+
+class AgentImprovementCycle(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("agent_loop"))
+    conversation_intent_id: str | None = None
+    failure_ids: list[str] = Field(default_factory=list)
+    improvement_proposal_ids: list[str] = Field(default_factory=list)
+    review_ids: list[str] = Field(default_factory=list)
+    status: str = "pending_review"

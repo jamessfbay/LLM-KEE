@@ -23,6 +23,22 @@ enabled = true
 enabled = true
 require_evidence_for_versions = false
 
+[intent]
+register_defaults = true
+detector_provider = "deterministic"
+
+[failures]
+enabled = true
+
+[improvements]
+enabled = true
+require_review = true
+
+[loops]
+knowledge_enabled = true
+skill_enabled = true
+agent_enabled = true
+
 [evaluation]
 enable_rule_engine = true
 enable_evidence_checker = true

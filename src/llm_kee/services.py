@@ -16,16 +16,25 @@ from llm_kee.evaluation import (
 )
 from llm_kee.evolution import EvolutionService
 from llm_kee.gates import LearningGate
+from llm_kee.intent import IntentDetector, default_intent_patterns
+from llm_kee.failures import FailureDetector
+from llm_kee.improvements import ImprovementService
 from llm_kee.integrations import KGClient, LLMKGClient
+from llm_kee.loops import AgentImprovementLoop, KnowledgeEvolutionLoop, SkillSelectionLoop
 from llm_kee.mape import MAPEAnalyzer, MAPEExecutor, MAPELoop, MAPEPlanner
 from llm_kee.monitoring import MonitorService
 from llm_kee.models import (
     ActionDefinition,
     ActionRun,
+    AgentImprovementCycle,
     AggregatedEvaluation,
     ChangeSet,
+    ConversationIntent,
     EvaluationResult,
     EvolutionEvent,
+    FailureRecord,
+    ImprovementProposal,
+    KnowledgeEvolutionCycle,
     LearnedPattern,
     LearningDecisionType,
     LearningSignal,
@@ -37,6 +46,7 @@ from llm_kee.models import (
     ReviewStatus,
     SchemaSuggestion,
     SkillDefinition,
+    SkillSelectionCycle,
     SkillPlan,
     UpdateProposal,
     ValidationResult,
@@ -72,6 +82,9 @@ class KEEEngine:
         )
         self.evolution = EvolutionService(self.store)
         self.monitor = MonitorService(self.store)
+        self.intent_detector = IntentDetector(self.store)
+        self.failure_detector = FailureDetector(self.store)
+        self.improvements = ImprovementService(self.store)
         self.mape_analyzer = MAPEAnalyzer()
         self.mape_planner = MAPEPlanner()
         self._ensure_defaults()
@@ -92,6 +105,19 @@ class KEEEngine:
             planner=self.mape_planner,
             executor=self.mape_executor,
         )
+        self.knowledge_loop = KnowledgeEvolutionLoop(self.store, self.run_mape_cycle)
+        self.skill_loop = SkillSelectionLoop(
+            self.store,
+            self.intent_detector,
+            self.plan_workflow,
+            self.run_workflow,
+        )
+        self.agent_loop = AgentImprovementLoop(
+            self.store,
+            self.intent_detector,
+            self.failure_detector,
+            self.improvements,
+        )
 
     def _ensure_defaults(self) -> None:
         if self.settings.skills.register_defaults:
@@ -104,6 +130,11 @@ class KEEEngine:
             for action in default_actions():
                 if action.id not in existing_action_ids:
                     self.store.action_definitions.upsert(action)
+        if self.settings.intent.register_defaults:
+            existing_pattern_ids = {pattern.id for pattern in self.store.intent_patterns.list()}
+            for pattern in default_intent_patterns():
+                if pattern.id not in existing_pattern_ids:
+                    self.store.intent_patterns.upsert(pattern)
 
     def _build_kg_client(self) -> KGClient:
         if self.settings.kg.enable_direct_adapter and self.settings.kg.workspace:
@@ -164,6 +195,21 @@ class KEEEngine:
     def run_action(self, action_type: str, input_payload: dict[str, Any]) -> ActionRun:
         return self.action_runner.run(action_type, input_payload)
 
+    def detect_intent(self, payload: dict[str, Any]) -> ConversationIntent:
+        return self.intent_detector.detect_conversation(payload)
+
+    def record_failure(self, payload: dict[str, Any]) -> FailureRecord:
+        return self.failure_detector.record(payload)
+
+    def propose_improvement(self, failure_id: str) -> ImprovementProposal:
+        return self.improvements.propose_for_failure(failure_id)
+
+    def approve_improvement(self, proposal_id: str) -> ImprovementProposal:
+        return self.improvements.review(proposal_id, approve=True)
+
+    def reject_improvement(self, proposal_id: str) -> ImprovementProposal:
+        return self.improvements.review(proposal_id, approve=False)
+
     def monitor_path(self, path: Any) -> list[LearningSignal]:
         return self.monitor.scan(path)
 
@@ -202,6 +248,16 @@ class KEEEngine:
     def run_mape_cycle(self, signal_batch: list[LearningSignal]) -> object:
         signals = [self.store.signals.upsert(signal) for signal in signal_batch]
         return self.mape.run(signals)
+
+    def run_knowledge_evolution(self, signals: list[LearningSignal]) -> KnowledgeEvolutionCycle:
+        persisted = [self.store.signals.upsert(signal) for signal in signals]
+        return self.knowledge_loop.run(persisted)
+
+    def run_skill_selection(self, task: dict[str, Any]) -> SkillSelectionCycle:
+        return self.skill_loop.run(task)
+
+    def run_agent_improvement(self, payload: dict[str, Any]) -> AgentImprovementCycle:
+        return self.agent_loop.run(payload)
 
     def save_trace(self, trace: ReasoningTrace) -> ReasoningTrace:
         self.store.traces.upsert(trace)

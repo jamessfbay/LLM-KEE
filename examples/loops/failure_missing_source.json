@@ -1,0 +1,7 @@
+{
+  "failure_type": "missing_source",
+  "summary": "Permit source is missing for the project intelligence packet.",
+  "target_type": "project",
+  "target_id": "156-california-avenue",
+  "evidence_ids": []
+}

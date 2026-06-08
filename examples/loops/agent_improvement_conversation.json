@@ -1,0 +1,7 @@
+{
+  "utterance": "Why can't you find the permit history for this project?",
+  "failure_type": "missing_source",
+  "summary": "Permit history answer failed because permit source ingestion is missing.",
+  "target_type": "project",
+  "target_id": "156-california-avenue"
+}
