@@ -22,6 +22,7 @@ from llm_kee.improvements import ImprovementService
 from llm_kee.integrations import KGClient, LLMKGClient
 from llm_kee.loops import AgentImprovementLoop, KnowledgeEvolutionLoop, SkillSelectionLoop
 from llm_kee.mape import MAPEAnalyzer, MAPEExecutor, MAPELoop, MAPEPlanner
+from llm_kee.memory import MemoryDreamingService
 from llm_kee.monitoring import MonitorService
 from llm_kee.models import (
     ActionDefinition,
@@ -118,6 +119,7 @@ class KEEEngine:
             self.failure_detector,
             self.improvements,
         )
+        self.memory = MemoryDreamingService(self.store, self.settings.workspace)
 
     def _ensure_defaults(self) -> None:
         if self.settings.skills.register_defaults:
@@ -258,6 +260,33 @@ class KEEEngine:
 
     def run_agent_improvement(self, payload: dict[str, Any]) -> AgentImprovementCycle:
         return self.agent_loop.run(payload)
+
+    def list_memory(self) -> dict[str, Any]:
+        return self.memory.list_memory()
+
+    def read_memory(self, scope: str, subject_id: str | None = None) -> dict[str, Any]:
+        return self.memory.read_memory(scope, subject_id)
+
+    def search_memory(self, query: str) -> dict[str, Any]:
+        return self.memory.search(query)
+
+    def draft_memory(self, payload: dict[str, Any]) -> object:
+        return self.memory.draft(payload)
+
+    def apply_memory_draft(self, draft_id: str) -> object:
+        return self.memory.apply_draft(draft_id)
+
+    def reject_memory_draft(self, draft_id: str) -> object:
+        return self.memory.reject_draft(draft_id)
+
+    def run_dream(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.memory.run_dream(payload)
+
+    def dream_diary(self, dream_run_id: str) -> object:
+        return self.memory.dream_diary(dream_run_id)
+
+    def review_dream_proposal(self, proposal_id: str, approve: bool, notes: str | None = None) -> object:
+        return self.memory.review_dream_proposal(proposal_id, approve=approve, notes=notes)
 
     def save_trace(self, trace: ReasoningTrace) -> ReasoningTrace:
         self.store.traces.upsert(trace)

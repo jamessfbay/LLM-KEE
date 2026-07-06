@@ -112,6 +112,8 @@ flowchart TD
 - Executable MAPE-K loop that analyzes signals, plans actions/workflows, runs AI Actions, validates artifacts, creates proposals, evaluates them, and records gate decisions.
 - Dedicated Knowledge Evolution, Skill Selection, and Agent Improvement loops.
 - Deterministic intent detection and reviewable improvement proposals for missing sources, low evidence, skill routing issues, workflow errors, conflicts, and judge disagreement.
+- Hash-guarded Markdown memory under `.llm_kee/memory/`, with draft/review/apply commands and sandbox path checks.
+- Deterministic Dreaming pipeline that reviews audit traces, produces Dream Diary records, and proposes governed memory updates.
 - Deterministic mock LLM judge plus optional OpenAI judge routing with safe fallback when the SDK or API key is missing.
 
 ## Install
@@ -153,9 +155,19 @@ llm-kee improvements review improvement_123 --approve
 llm-kee loops knowledge run signals.json
 llm-kee loops skill run task.json
 llm-kee loops agent run conversation.json
+llm-kee memory search "permit history"
+llm-kee memory read org
+llm-kee memory draft memory_draft.json
+llm-kee memory apply memory_draft_123 --approve
+llm-kee memory reject memory_draft_123
+llm-kee dream run audit_traces.json
+llm-kee dream diary dream_run_123
+llm-kee dream review dream_proposal_123 --approve
 ```
 
 `llm-kee apply` mutates LLM-KG only when the proposal is approved and the direct adapter is enabled. Other proposal states are rejected before apply.
+
+Memory writes are intentionally proposal-first. `memory apply` checks the target Markdown file hash before writing and rejects stale drafts when another process has changed the file. Dreaming generates proposals and diaries; it does not automatically apply high-risk memory updates.
 
 Example `feedback.json`:
 

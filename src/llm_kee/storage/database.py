@@ -9,6 +9,10 @@ from llm_kee.models import (
     ChangeSet,
     ClaimNode,
     ConversationIntent,
+    DreamDiary,
+    DreamInsight,
+    DreamProposal,
+    DreamRun,
     EntityNode,
     EvaluationRecord,
     EvaluationResult,
@@ -30,6 +34,8 @@ from llm_kee.models import (
     MAPEExecution,
     MAPEObservation,
     MAPEPlan,
+    MemoryDraft,
+    MemoryFile,
     MonitorEvent,
     MonitorSnapshot,
     RelationEdge,
@@ -108,3 +114,9 @@ class KEEStore:
             root / "agent_improvement_cycles.json",
             AgentImprovementCycle,
         )
+        self.memory_files = JsonRepository(root / "memory_files.json", MemoryFile)
+        self.memory_drafts = JsonRepository(root / "memory_drafts.json", MemoryDraft)
+        self.dream_runs = JsonRepository(root / "dream_runs.json", DreamRun)
+        self.dream_insights = JsonRepository(root / "dream_insights.json", DreamInsight)
+        self.dream_proposals = JsonRepository(root / "dream_proposals.json", DreamProposal)
+        self.dream_diaries = JsonRepository(root / "dream_diaries.json", DreamDiary)

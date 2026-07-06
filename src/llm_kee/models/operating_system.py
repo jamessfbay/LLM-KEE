@@ -2,7 +2,7 @@ from typing import Any
 
 from pydantic import Field
 
-from llm_kee.models.base import StoredModel, new_id
+from llm_kee.models.base import StoredModel, new_id, now_utc
 
 
 class SourceRecord(StoredModel):
@@ -396,3 +396,72 @@ class AgentImprovementCycle(StoredModel):
     improvement_proposal_ids: list[str] = Field(default_factory=list)
     review_ids: list[str] = Field(default_factory=list)
     status: str = "pending_review"
+
+
+class MemoryFile(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("memory_file"))
+    path: str
+    scope: str
+    subject_id: str | None = None
+    hash: str
+    updated_at: Any = Field(default_factory=now_utc)
+
+
+class MemoryDraft(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("memory_draft"))
+    target_path: str
+    base_hash: str
+    proposed_content: str
+    rationale: str
+    status: str = "pending_review"
+    applied_at: Any | None = None
+    rejected_at: Any | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DreamInsight(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("dream_insight"))
+    dream_run_id: str | None = None
+    summary: str
+    frequency: float = Field(default=0.0, ge=0.0)
+    relevance: float = Field(default=0.0, ge=0.0)
+    query_diversity: float = Field(default=0.0, ge=0.0)
+    recency: float = Field(default=0.0, ge=0.0)
+    cross_day_repeat: float = Field(default=0.0, ge=0.0)
+    concept_richness: float = Field(default=0.0, ge=0.0)
+    score: float = Field(default=0.0, ge=0.0)
+    source_trace_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DreamProposal(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("dream_proposal"))
+    dream_run_id: str
+    memory_draft_id: str
+    target_memory_path: str
+    change_summary: str
+    diff: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    status: str = "pending_review"
+    review_notes: str | None = None
+
+
+class DreamDiary(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("dream_diary"))
+    dream_run_id: str
+    title: str
+    narrative: str
+    insight_ids: list[str] = Field(default_factory=list)
+    proposal_ids: list[str] = Field(default_factory=list)
+
+
+class DreamRun(StoredModel):
+    id: str = Field(default_factory=lambda: new_id("dream_run"))
+    source_trace_ids: list[str] = Field(default_factory=list)
+    stage: str = "deep"
+    status: str = "completed"
+    token_budget: int = 0
+    insight_ids: list[str] = Field(default_factory=list)
+    proposal_ids: list[str] = Field(default_factory=list)
+    diary_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)

@@ -120,6 +120,35 @@ def main() -> None:
     agent_run_parser = agent_subparsers.add_parser("run", help="Run agent loop from conversation JSON")
     agent_run_parser.add_argument("json_file")
 
+    memory_parser = subparsers.add_parser("memory", help="Markdown memory commands")
+    memory_subparsers = memory_parser.add_subparsers(dest="memory_command", required=True)
+    memory_subparsers.add_parser("list", help="List memory files, drafts, and dreams")
+    memory_search_parser = memory_subparsers.add_parser("search", help="Search Markdown memory")
+    memory_search_parser.add_argument("query")
+    memory_read_parser = memory_subparsers.add_parser("read", help="Read one memory file by scope and id")
+    memory_read_parser.add_argument("scope")
+    memory_read_parser.add_argument("subject_id", nargs="?")
+    memory_draft_parser = memory_subparsers.add_parser("draft", help="Create a memory draft from JSON")
+    memory_draft_parser.add_argument("json_file")
+    memory_apply_parser = memory_subparsers.add_parser("apply", help="Apply a memory draft")
+    memory_apply_parser.add_argument("draft_id")
+    memory_apply_parser.add_argument("--approve", action="store_true", required=True)
+    memory_reject_parser = memory_subparsers.add_parser("reject", help="Reject a memory draft")
+    memory_reject_parser.add_argument("draft_id")
+
+    dream_parser = subparsers.add_parser("dream", help="Run out-of-band memory dreaming")
+    dream_subparsers = dream_parser.add_subparsers(dest="dream_command", required=True)
+    dream_run_parser = dream_subparsers.add_parser("run", help="Run a deterministic dream from audit JSON")
+    dream_run_parser.add_argument("json_file")
+    dream_diary_parser = dream_subparsers.add_parser("diary", help="Show a dream diary")
+    dream_diary_parser.add_argument("dream_run_id")
+    dream_review_parser = dream_subparsers.add_parser("review", help="Approve or reject a dream proposal")
+    dream_review_parser.add_argument("proposal_id")
+    dream_review_group = dream_review_parser.add_mutually_exclusive_group(required=True)
+    dream_review_group.add_argument("--approve", action="store_true")
+    dream_review_group.add_argument("--reject", action="store_true")
+    dream_review_parser.add_argument("--notes", default=None)
+
     feedback_parser = subparsers.add_parser(
         "feedback",
         help="Create feedback, interpret it, and generate an update proposal",
@@ -163,6 +192,11 @@ def main() -> None:
                 "knowledge_evolution_cycles": len(engine.store.knowledge_evolution_cycles.list()),
                 "skill_selection_cycles": len(engine.store.skill_selection_cycles.list()),
                 "agent_improvement_cycles": len(engine.store.agent_improvement_cycles.list()),
+                "memory_files": len(engine.store.memory_files.list()),
+                "memory_drafts": len(engine.store.memory_drafts.list()),
+                "dream_runs": len(engine.store.dream_runs.list()),
+                "dream_proposals": len(engine.store.dream_proposals.list()),
+                "dream_diaries": len(engine.store.dream_diaries.list()),
             }
         )
     elif args.command == "skills" and args.skills_command == "list":
@@ -248,6 +282,24 @@ def main() -> None:
         print_json(engine.run_skill_selection(read_json(args.json_file)))
     elif args.command == "loops" and args.loop_name == "agent" and args.loop_command == "run":
         print_json(engine.run_agent_improvement(read_json(args.json_file)))
+    elif args.command == "memory" and args.memory_command == "list":
+        print_json(engine.list_memory())
+    elif args.command == "memory" and args.memory_command == "search":
+        print_json(engine.search_memory(args.query))
+    elif args.command == "memory" and args.memory_command == "read":
+        print_json(engine.read_memory(args.scope, args.subject_id))
+    elif args.command == "memory" and args.memory_command == "draft":
+        print_json(engine.draft_memory(read_json(args.json_file)))
+    elif args.command == "memory" and args.memory_command == "apply":
+        print_json(engine.apply_memory_draft(args.draft_id))
+    elif args.command == "memory" and args.memory_command == "reject":
+        print_json(engine.reject_memory_draft(args.draft_id))
+    elif args.command == "dream" and args.dream_command == "run":
+        print_json(engine.run_dream(read_json(args.json_file)))
+    elif args.command == "dream" and args.dream_command == "diary":
+        print_json(engine.dream_diary(args.dream_run_id))
+    elif args.command == "dream" and args.dream_command == "review":
+        print_json(engine.review_dream_proposal(args.proposal_id, approve=args.approve, notes=args.notes))
     elif args.command == "feedback":
         feedback = UserFeedback.model_validate(read_json(args.json_file))
         saved_feedback, proposal = engine.accept_feedback(feedback)
