@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import UTC, date, datetime
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
 import re
+import time
 from typing import Any
 
 from llm_kee.models import (
@@ -25,7 +27,11 @@ class MemoryDreamingService:
         self.store = store
         self.workspace = workspace
         self.root = workspace / ".llm_kee" / "memory"
+        self.kee_root = workspace / ".llm_kee"
+        self.locks_root = self.kee_root / "locks"
+        self.schedule_path = self.kee_root / "dream_schedule.json"
         self.root.mkdir(parents=True, exist_ok=True)
+        self.locks_root.mkdir(parents=True, exist_ok=True)
         for relative in ("org", "projects", "agents", "scratch", ".drafts", ".dreams"):
             (self.root / relative).mkdir(parents=True, exist_ok=True)
 
@@ -93,21 +99,22 @@ class MemoryDreamingService:
         draft = self.store.memory_drafts.get(draft_id)
         if not draft:
             raise ValueError(f"Memory draft not found: {draft_id}")
-        path = self._safe_path(draft.target_path)
-        current = path.read_text(encoding="utf-8") if path.exists() else ""
-        current_hash = self._hash(current)
-        if current_hash != draft.base_hash:
-            raise ValueError(
-                f"Memory hash conflict for {draft.target_path}: expected {draft.base_hash}, got {current_hash}"
-            )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self._normalize_relative_dates(draft.proposed_content), encoding="utf-8")
-        draft.status = "applied"
-        draft.applied_at = now_utc()
-        draft.updated_at = now_utc()
-        self.store.memory_drafts.upsert(draft)
-        self.refresh_manifest()
-        return draft
+        with self._lease_lock(f"memory-{self._safe_name(draft.target_path)}", draft.target_path, draft.base_hash):
+            path = self._safe_path(draft.target_path)
+            current = path.read_text(encoding="utf-8") if path.exists() else ""
+            current_hash = self._hash(current)
+            if current_hash != draft.base_hash:
+                raise ValueError(
+                    f"Memory hash conflict for {draft.target_path}: expected {draft.base_hash}, got {current_hash}"
+                )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self._normalize_relative_dates(draft.proposed_content), encoding="utf-8")
+            draft.status = "applied"
+            draft.applied_at = now_utc()
+            draft.updated_at = now_utc()
+            self.store.memory_drafts.upsert(draft)
+            self.refresh_manifest()
+            return draft
 
     def reject_draft(self, draft_id: str) -> MemoryDraft:
         draft = self.store.memory_drafts.get(draft_id)
@@ -119,32 +126,83 @@ class MemoryDreamingService:
         return self.store.memory_drafts.upsert(draft)
 
     def run_dream(self, payload: dict[str, Any]) -> dict[str, Any]:
-        traces = self._load_source_traces(payload)
-        run = DreamRun(
-            source_trace_ids=[str(trace.get("id") or trace.get("decision_id") or "") for trace in traces],
-            token_budget=int(payload.get("token_budget") or 0),
-            metadata={
-                "trace_count": len(traces),
-                "source": payload.get("source", "manual"),
-            },
-        )
-        run = self.store.dream_runs.upsert(run)
-        insights = self._build_insights(run.id, traces)
-        proposals: list[DreamProposal] = []
-        for insight in insights:
-            self.store.dream_insights.upsert(insight)
-            run.insight_ids.append(insight.id)
-            if insight.score >= 3.0:
-                proposal = self._proposal_from_insight(run.id, insight)
-                proposals.append(self.store.dream_proposals.upsert(proposal))
-                run.proposal_ids.append(proposal.id)
-        diary = self._diary(run, insights, proposals)
-        self.store.dream_diaries.upsert(diary)
-        run.diary_id = diary.id
-        run.updated_at = now_utc()
-        run = self.store.dream_runs.upsert(run)
-        self._write_internal_json(".dreams", run.id, {"run": run.model_dump(mode="json"), "diary": diary.model_dump(mode="json")})
-        return {"run": run, "insights": insights, "proposals": proposals, "diary": diary}
+        with self._lease_lock("dream", "dreaming", None):
+            traces = self._load_source_traces(payload)
+            run = DreamRun(
+                source_trace_ids=[str(trace.get("id") or trace.get("decision_id") or "") for trace in traces],
+                token_budget=int(payload.get("token_budget") or 0),
+                metadata={
+                    "trace_count": len(traces),
+                    "source": payload.get("source", "manual"),
+                },
+            )
+            run = self.store.dream_runs.upsert(run)
+            insights = self._build_insights(run.id, traces)
+            proposals: list[DreamProposal] = []
+            for insight in insights:
+                self.store.dream_insights.upsert(insight)
+                run.insight_ids.append(insight.id)
+                if insight.score >= 3.0:
+                    proposal = self._proposal_from_insight(run.id, insight)
+                    proposals.append(self.store.dream_proposals.upsert(proposal))
+                    run.proposal_ids.append(proposal.id)
+            diary = self._diary(run, insights, proposals)
+            self.store.dream_diaries.upsert(diary)
+            run.diary_id = diary.id
+            run.updated_at = now_utc()
+            run = self.store.dream_runs.upsert(run)
+            self._write_internal_json(".dreams", run.id, {"run": run.model_dump(mode="json"), "diary": diary.model_dump(mode="json")})
+            return {"run": run, "insights": insights, "proposals": proposals, "diary": diary}
+
+    def dream_scheduler_status(self) -> dict[str, Any]:
+        return {
+            **self._read_schedule(),
+            "locks": self._list_locks(),
+            "schedule_path": str(self.schedule_path),
+        }
+
+    def run_dream_scheduler_once(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = dict(payload or {})
+        schedule = self._read_schedule()
+        now = now_utc()
+        schedule.update({"status": "running", "updated_at": now.isoformat(), "error": None})
+        self._write_schedule(schedule)
+        try:
+            payload.setdefault("source", "scheduler")
+            result = self.run_dream(payload)
+            run = result["run"]
+            next_due = now + timedelta(hours=24)
+            schedule.update(
+                {
+                    "status": "idle",
+                    "last_run": now.isoformat(),
+                    "next_due": next_due.isoformat(),
+                    "last_dream_run_id": run.id,
+                    "updated_at": now_utc().isoformat(),
+                    "error": None,
+                }
+            )
+            self._write_schedule(schedule)
+            return {"scheduler": schedule, **result}
+        except Exception as exc:
+            schedule.update({"status": "error", "updated_at": now_utc().isoformat(), "error": str(exc)})
+            self._write_schedule(schedule)
+            raise
+
+    def start_dream_scheduler(self, interval_minutes: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        interval = max(1, interval_minutes)
+        schedule = self._read_schedule()
+        schedule.update({"status": "started", "interval_minutes": interval, "updated_at": now_utc().isoformat(), "error": None})
+        self._write_schedule(schedule)
+        try:
+            while True:
+                self.run_dream_scheduler_once(payload)
+                time.sleep(interval * 60)
+        except KeyboardInterrupt:
+            schedule = self._read_schedule()
+            schedule.update({"status": "stopped", "updated_at": now_utc().isoformat()})
+            self._write_schedule(schedule)
+            return {"scheduler": schedule}
 
     def dream_diary(self, dream_run_id: str) -> DreamDiary:
         diary = next((item for item in self.store.dream_diaries.list() if item.dream_run_id == dream_run_id), None)
@@ -368,6 +426,67 @@ class MemoryDreamingService:
         path = self._safe_path(f"{folder}/{self._safe_name(item_id)}.json")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def _read_schedule(self) -> dict[str, Any]:
+        if not self.schedule_path.exists():
+            return {
+                "status": "idle",
+                "last_run": None,
+                "next_due": None,
+                "last_dream_run_id": None,
+                "interval_minutes": None,
+                "error": None,
+            }
+        try:
+            raw = json.loads(self.schedule_path.read_text(encoding="utf-8"))
+            return raw if isinstance(raw, dict) else {}
+        except Exception:
+            return {"status": "error", "error": "schedule_state_unreadable"}
+
+    def _write_schedule(self, payload: dict[str, Any]) -> None:
+        self.kee_root.mkdir(parents=True, exist_ok=True)
+        self.schedule_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    @contextmanager
+    def _lease_lock(self, name: str, target: str, base_hash: str | None, ttl_seconds: int = 900):
+        safe_name = self._safe_name(name)
+        path = self.locks_root / f"{safe_name}.lock"
+        now = now_utc()
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                expires = datetime.fromisoformat(str(existing.get("expires_at")))
+                if expires > now:
+                    raise ValueError(
+                        f"Lock conflict for {target}: held by {existing.get('owner')} until {existing.get('expires_at')}"
+                    )
+            except ValueError:
+                raise
+            except Exception:
+                pass
+        lock = {
+            "owner": f"llm-kee:{safe_name}",
+            "target": target,
+            "base_hash": base_hash,
+            "created_at": now.isoformat(),
+            "expires_at": (now + timedelta(seconds=ttl_seconds)).isoformat(),
+        }
+        path.write_text(json.dumps(lock, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            yield lock
+        finally:
+            path.unlink(missing_ok=True)
+
+    def _list_locks(self) -> list[dict[str, Any]]:
+        locks: list[dict[str, Any]] = []
+        for path in sorted(self.locks_root.glob("*.lock")):
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                raw["path"] = str(path)
+                locks.append(raw)
+            except Exception:
+                locks.append({"path": str(path), "error": "unreadable_lock"})
+        return locks
 
     def _append_section(self, current: str, title: str, body: str) -> str:
         prefix = current.rstrip() or "# Organization Memory"

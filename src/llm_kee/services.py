@@ -282,6 +282,15 @@ class KEEEngine:
     def run_dream(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.memory.run_dream(payload)
 
+    def dream_scheduler_status(self) -> dict[str, Any]:
+        return self.memory.dream_scheduler_status()
+
+    def run_dream_scheduler_once(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.memory.run_dream_scheduler_once(payload)
+
+    def start_dream_scheduler(self, interval_minutes: int, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.memory.start_dream_scheduler(interval_minutes, payload)
+
     def dream_diary(self, dream_run_id: str) -> object:
         return self.memory.dream_diary(dream_run_id)
 

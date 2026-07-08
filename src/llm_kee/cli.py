@@ -12,6 +12,17 @@ def read_json(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def read_dream_payload(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    raw = read_json(path)
+    if isinstance(raw, list):
+        return {"audit_traces": raw}
+    if isinstance(raw, dict):
+        return raw
+    return {"input": raw}
+
+
 def print_json(payload: Any) -> None:
     print(json.dumps(to_jsonable(payload), indent=2, ensure_ascii=False))
 
@@ -140,6 +151,15 @@ def main() -> None:
     dream_subparsers = dream_parser.add_subparsers(dest="dream_command", required=True)
     dream_run_parser = dream_subparsers.add_parser("run", help="Run a deterministic dream from audit JSON")
     dream_run_parser.add_argument("json_file")
+    dream_scheduler_parser = dream_subparsers.add_parser("scheduler", help="Run or inspect the Dream scheduler")
+    dream_scheduler_subparsers = dream_scheduler_parser.add_subparsers(dest="scheduler_command", required=True)
+    dream_scheduler_status_parser = dream_scheduler_subparsers.add_parser("status", help="Show Dream scheduler state")
+    dream_scheduler_run_parser = dream_scheduler_subparsers.add_parser("run", help="Run one scheduled Dream cycle")
+    dream_scheduler_run_parser.add_argument("--once", action="store_true", required=True)
+    dream_scheduler_run_parser.add_argument("json_file", nargs="?")
+    dream_scheduler_start_parser = dream_scheduler_subparsers.add_parser("start", help="Start the local Dream scheduler loop")
+    dream_scheduler_start_parser.add_argument("--interval-minutes", type=int, default=60)
+    dream_scheduler_start_parser.add_argument("json_file", nargs="?")
     dream_diary_parser = dream_subparsers.add_parser("diary", help="Show a dream diary")
     dream_diary_parser.add_argument("dream_run_id")
     dream_review_parser = dream_subparsers.add_parser("review", help="Approve or reject a dream proposal")
@@ -296,6 +316,14 @@ def main() -> None:
         print_json(engine.reject_memory_draft(args.draft_id))
     elif args.command == "dream" and args.dream_command == "run":
         print_json(engine.run_dream(read_json(args.json_file)))
+    elif args.command == "dream" and args.dream_command == "scheduler" and args.scheduler_command == "status":
+        print_json(engine.dream_scheduler_status())
+    elif args.command == "dream" and args.dream_command == "scheduler" and args.scheduler_command == "run":
+        payload = read_dream_payload(args.json_file)
+        print_json(engine.run_dream_scheduler_once(payload))
+    elif args.command == "dream" and args.dream_command == "scheduler" and args.scheduler_command == "start":
+        payload = read_dream_payload(args.json_file)
+        print_json(engine.start_dream_scheduler(args.interval_minutes, payload))
     elif args.command == "dream" and args.dream_command == "diary":
         print_json(engine.dream_diary(args.dream_run_id))
     elif args.command == "dream" and args.dream_command == "review":
