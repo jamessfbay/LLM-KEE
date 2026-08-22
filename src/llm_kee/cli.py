@@ -1,11 +1,13 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from llm_kee.config import load_settings
 from llm_kee.models import ChangeSet, LearningSignal, UserFeedback, WorkflowDefinition
 from llm_kee.services import KEEEngine
+from llm_kee.runtime_protocol import OperationReceiptStore, RuntimeEmitter, RuntimeError, load_runtime_command
 
 
 def read_json(path: str) -> Any:
@@ -39,6 +41,9 @@ def to_jsonable(payload: Any) -> Any:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="LLM-KEE local utility")
+    parser.add_argument("--event-stream", action="store_true", help="Emit RuntimeEvent v1 NDJSON")
+    parser.add_argument("--runtime-context", help="Path to a RuntimeCommand v1 JSON file")
+    parser.add_argument("--idempotency-key", help="Override the RuntimeCommand idempotency key")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("stats", help="Show local store counts")
@@ -190,6 +195,9 @@ def main() -> None:
     args = parser.parse_args()
 
     engine = KEEEngine(load_settings())
+    if args.event_stream:
+        _run_streamed(args, engine)
+        return
     if args.command == "stats":
         print_json(
             {
@@ -346,3 +354,100 @@ def main() -> None:
         result = engine.safe_apply.apply(proposal)
         engine.store.proposals.upsert(proposal)
         print_json(result)
+
+
+def _run_streamed(args, engine: KEEEngine) -> None:
+    command = load_runtime_command(args.runtime_context)
+    if command is None:
+        raise ValueError("--runtime-context is required with --event-stream")
+    if args.idempotency_key:
+        command.idempotency_key = args.idempotency_key
+    if command.engine != "llm-kee":
+        raise ValueError(f"Runtime command engine mismatch: {command.engine}")
+    emitter = RuntimeEmitter(command, sys.stdout)
+    receipts = OperationReceiptStore(engine.settings.workspace, ".llm_kee")
+    receipt = receipts.begin(command)
+    if receipt.status in {"succeeded", "insufficient"}:
+        emitter.emit("step.completed", receipt.status, references=_runtime_references(receipt.output), payload={"replayed": True})
+        return
+    emitter.emit("step.started", "running", payload={"command": args.command})
+    try:
+        output, status = _execute_runtime_command(args, engine, command, emitter)
+        receipts.complete(receipt, status, output)
+        if output.get("artifact_ids") or output.get("proposal_ids"):
+            emitter.emit("artifact.created", status, references=_runtime_references(output))
+        emitter.emit("step.completed", status, references=_runtime_references(output), payload=_runtime_counts(output))
+    except KeyboardInterrupt:
+        receipts.interrupt(receipt, "LLM-KEE operation interrupted")
+        emitter.emit("step.failed", "interrupted", error=RuntimeError(code="interrupted", message="LLM-KEE operation interrupted", retryable=True))
+    except Exception as exc:
+        receipts.complete(receipt, "failed", {"error": str(exc)})
+        emitter.emit("step.failed", "failed", error=RuntimeError(code="kee_failed", message=str(exc), retryable=True))
+        raise
+
+
+def _execute_runtime_command(args, engine: KEEEngine, command, emitter: RuntimeEmitter) -> tuple[dict[str, Any], str]:
+    if args.command == "mape" and args.mape_command == "run":
+        signals = _runtime_signals(args, engine, command)
+        for phase in ("monitor", "analyze", "plan", "execute", "knowledge"):
+            emitter.emit("step.progress", "running", payload={"phase": phase})
+        cycle = engine.run_mape_cycle(signals)
+        execution_status = str(cycle.execution.get("status") or "")
+        status = "succeeded" if cycle.status == "completed" and execution_status == "completed" else "insufficient"
+        return {
+            "mape_cycle_id": cycle.id,
+            "signal_ids": [signal.id for signal in signals],
+            "action_run_ids": cycle.action_run_ids,
+            "artifact_ids": cycle.artifact_ids,
+            "proposal_ids": cycle.proposal_ids,
+            "execution_status": execution_status,
+        }, status
+    if args.command == "loops" and args.loop_command == "run":
+        if args.loop_name == "knowledge":
+            signals = _runtime_signals(args, engine, command)
+            cycle = engine.run_knowledge_evolution(signals)
+            return {"knowledge_evolution_cycle_id": cycle.id, "mape_cycle_id": cycle.mape_cycle_id, "signal_ids": cycle.signal_ids, "proposal_ids": cycle.proposal_ids}, "succeeded" if cycle.status == "completed" and cycle.mape_cycle_id else "insufficient"
+        if args.loop_name == "skill":
+            cycle = engine.run_skill_selection(read_json(args.json_file))
+            return {"skill_cycle_id": cycle.id}, "succeeded"
+        cycle = engine.run_agent_improvement(read_json(args.json_file))
+        return {"agent_cycle_id": cycle.id, "proposal_ids": getattr(cycle, "proposal_ids", [])}, "succeeded"
+    if args.command == "failures" and args.failures_command == "record":
+        failure = engine.record_failure(read_json(args.json_file))
+        return {"failure_id": failure.id}, "succeeded"
+    if args.command == "memory" and args.memory_command == "search":
+        result = engine.search_memory(args.query)
+        matches = result.get("matches", [])
+        return {"memory_paths": [str(item.get("path")) for item in matches if isinstance(item, dict)]}, "succeeded" if matches else "insufficient"
+    if args.command == "dream" and args.dream_command == "run":
+        result = engine.run_dream(read_dream_payload(args.json_file))
+        run = result["run"]
+        return {"dream_run_id": run.id, "proposal_ids": run.proposal_ids, "diary_id": run.diary_id or ""}, "succeeded"
+    raise ValueError(f"Runtime event streaming is not supported for command: {args.command}")
+
+
+def _runtime_signals(args, engine: KEEEngine, command) -> list[LearningSignal]:
+    if getattr(args, "from_path", None):
+        signals = engine.monitor_path(args.from_path)
+    else:
+        raw = read_json(args.json_file)
+        signals = [LearningSignal.model_validate(item) for item in raw]
+    for signal in signals:
+        signal.payload = {
+            **signal.payload,
+            "nox_decision_id": command.decision_id,
+            "nox_run_id": command.run_id,
+            "nox_step_id": command.step_id,
+            "input_hash": command.input_hash,
+            "claw_reference_ids": command.input.get("claw_reference_ids", []),
+            "kg_trace_id": command.input.get("kg_trace_id"),
+        }
+    return signals
+
+
+def _runtime_references(output: dict[str, Any]) -> dict[str, str | list[str]]:
+    return {key: value for key, value in output.items() if isinstance(value, str) or (isinstance(value, list) and all(isinstance(item, str) for item in value))}
+
+
+def _runtime_counts(output: dict[str, Any]) -> dict[str, Any]:
+    return {f"{key[:-4]}_count": len(value) for key, value in output.items() if key.endswith("_ids") and isinstance(value, list)}

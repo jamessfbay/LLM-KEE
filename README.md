@@ -169,6 +169,17 @@ llm-kee dream review dream_proposal_123 --approve
 
 Memory writes are intentionally proposal-first. `memory apply` checks the target Markdown file hash before writing and rejects stale drafts when another process has changed the file. Dreaming generates proposals and diaries; it does not automatically apply high-risk memory updates.
 
+## NOX Runtime Protocol
+
+MAPE-K, knowledge/skill/agent loops, failure recording, memory recall and Dreaming support NOX RuntimeEvent v1 NDJSON:
+
+```bash
+llm-kee --event-stream --runtime-context runtime-command.json mape run signals.json
+llm-kee --event-stream --runtime-context runtime-command.json loops knowledge run signals.json
+```
+
+MAPE-K emits monitor, analyze, plan, execute and knowledge progress events. Receipts under `.llm_kee/operations/` ensure retries do not duplicate cycles, proposals or artifacts. Learning signals keep NOX, CLAW and KG references plus the input hash, while evidence and long-term knowledge remain in their owning engines.
+
 Example `feedback.json`:
 
 ```json
