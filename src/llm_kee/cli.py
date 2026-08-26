@@ -387,6 +387,16 @@ def _run_streamed(args, engine: KEEEngine) -> None:
 
 
 def _execute_runtime_command(args, engine: KEEEngine, command, emitter: RuntimeEmitter) -> tuple[dict[str, Any], str]:
+    if args.command == "action" and args.action_command == "run":
+        emitter.emit("step.progress", "running", payload={"phase": "plan_action"})
+        run = engine.run_action(args.action_type, read_json(args.json_file))
+        status = "succeeded" if run.status == "completed" and run.artifact_ids else "insufficient"
+        return {
+            "action_run_ids": [run.id],
+            "artifact_ids": list(run.artifact_ids),
+            "workflow_run_id": run.workflow_run_id or "",
+            "action_status": run.status,
+        }, status
     if args.command == "mape" and args.mape_command == "run":
         signals = _runtime_signals(args, engine, command)
         for phase in ("monitor", "analyze", "plan", "execute", "knowledge"):
