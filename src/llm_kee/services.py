@@ -2,7 +2,7 @@ from typing import Any
 
 from llm_kee.actions import ActionRegistry, default_actions
 from llm_kee.actions.runner import ActionRunner
-from llm_kee.actions.perfit import PerfitActionService
+from llm_kee.actions.structured_generation import StructuredGenerationService
 from llm_kee.agents.feedback_interpreter import FeedbackInterpreter
 from llm_kee.agents.proposal_generator import ProposalGenerator
 from llm_kee.apply import SafeApplyService
@@ -74,10 +74,10 @@ class KEEEngine:
         self.skill_retriever = SkillRetriever(self.skill_registry)
         self.workflow_planner = WorkflowPlanner(self.store)
         self.workflow_executor = WorkflowExecutor(self.store)
-        self.perfit_actions = PerfitActionService(
-            provider=settings.perfit_llm.provider,
-            model=settings.perfit_llm.model,
-            require_llm=settings.perfit_llm.require_llm,
+        self.structured_generation = StructuredGenerationService(
+            provider=settings.generation_llm.provider,
+            model=settings.generation_llm.model,
+            require_llm=settings.generation_llm.require_llm,
         )
         self.action_runner = ActionRunner(
             self.store,
@@ -86,7 +86,7 @@ class KEEEngine:
             self.skill_retriever,
             self.workflow_planner,
             self.workflow_executor,
-            self.perfit_actions,
+            self.structured_generation,
         )
         self.evolution = EvolutionService(self.store)
         self.monitor = MonitorService(self.store)

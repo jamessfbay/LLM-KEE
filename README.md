@@ -115,7 +115,7 @@ flowchart TD
 - Hash-guarded Markdown memory under `.llm_kee/memory/`, with draft/review/apply commands and sandbox path checks.
 - Deterministic Dreaming pipeline that reviews audit traces, produces Dream Diary records, and proposes governed memory updates.
 - Deterministic mock LLM judge plus optional OpenAI judge routing with safe fallback when the SDK or API key is missing.
-- PERFIT commercial-discovery actions for five-question validation sets, one-to-one outreach drafts, opportunity synthesis, product definitions, and score-delta explanations. Outputs are schema-validated and retain evidence identifiers and generation metadata.
+- Generic structured generation from caller-owned instructions and JSON Schema, with validated artifacts and generation metadata.
 
 ## Install
 

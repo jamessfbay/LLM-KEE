@@ -5,7 +5,7 @@ from llm_kee.models import ActionArtifact, ActionRun, SkillPlan
 from llm_kee.skills import SkillRetriever, TaskClassifier
 from llm_kee.storage import KEEStore
 from llm_kee.workflows import WorkflowExecutor, WorkflowPlanner
-from llm_kee.actions.perfit import PerfitActionService
+from llm_kee.actions.structured_generation import StructuredGenerationService
 
 
 class ActionRunner:
@@ -17,7 +17,7 @@ class ActionRunner:
         retriever: SkillRetriever,
         planner: WorkflowPlanner,
         executor: WorkflowExecutor,
-        perfit_actions: PerfitActionService | None = None,
+        structured_generation: StructuredGenerationService | None = None,
     ) -> None:
         self.store = store
         self.registry = registry
@@ -25,7 +25,7 @@ class ActionRunner:
         self.retriever = retriever
         self.planner = planner
         self.executor = executor
-        self.perfit_actions = perfit_actions
+        self.structured_generation = structured_generation
 
     def run(self, action_type: str, input_payload: dict[str, Any]) -> ActionRun:
         action = self.registry.get_by_type(action_type)
@@ -49,8 +49,8 @@ class ActionRunner:
         workflow_run = self.executor.run(workflow)
         try:
             generated_content = (
-                self.perfit_actions.execute(action_type, input_payload)
-                if self.perfit_actions and self.perfit_actions.supports(action_type)
+                self.structured_generation.execute(action_type, input_payload)
+                if self.structured_generation and self.structured_generation.supports(action_type)
                 else {
                     "summary": f"{action.name} completed with {len(workflow_run.steps)} workflow steps.",
                     "workflow_output": workflow_run.output,
