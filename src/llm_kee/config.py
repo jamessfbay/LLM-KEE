@@ -47,6 +47,12 @@ class WorkflowsConfig(BaseModel):
     record_step_outputs: bool = True
 
 
+class PerfitLLMConfig(BaseModel):
+    provider: str = "openai"
+    model: str = ""
+    require_llm: bool = False
+
+
 class MAPEConfig(BaseModel):
     enabled: bool = True
 
@@ -83,6 +89,7 @@ class Settings(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     actions: ActionsConfig = Field(default_factory=ActionsConfig)
     workflows: WorkflowsConfig = Field(default_factory=WorkflowsConfig)
+    perfit_llm: PerfitLLMConfig = Field(default_factory=PerfitLLMConfig)
     mape: MAPEConfig = Field(default_factory=MAPEConfig)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     intent: IntentConfig = Field(default_factory=IntentConfig)
@@ -106,6 +113,10 @@ def load_settings() -> Settings:
         settings.kg.workspace = Path(os.environ["LLM_KG_WORKSPACE"]).expanduser().resolve()
     if os.getenv("LLM_KG_PROJECT_PATH"):
         settings.kg.project_path = Path(os.environ["LLM_KG_PROJECT_PATH"]).expanduser().resolve()
+    settings.perfit_llm.provider = os.getenv("LLM_KEE_PERFIT_PROVIDER", settings.perfit_llm.provider)
+    settings.perfit_llm.model = os.getenv("LLM_KEE_PERFIT_MODEL", settings.perfit_llm.model)
+    if os.getenv("LLM_KEE_REQUIRE_LLM") is not None:
+        settings.perfit_llm.require_llm = _bool(os.getenv("LLM_KEE_REQUIRE_LLM"))
     return settings
 
 

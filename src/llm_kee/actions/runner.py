@@ -5,6 +5,7 @@ from llm_kee.models import ActionArtifact, ActionRun, SkillPlan
 from llm_kee.skills import SkillRetriever, TaskClassifier
 from llm_kee.storage import KEEStore
 from llm_kee.workflows import WorkflowExecutor, WorkflowPlanner
+from llm_kee.actions.perfit import PerfitActionService
 
 
 class ActionRunner:
@@ -16,6 +17,7 @@ class ActionRunner:
         retriever: SkillRetriever,
         planner: WorkflowPlanner,
         executor: WorkflowExecutor,
+        perfit_actions: PerfitActionService | None = None,
     ) -> None:
         self.store = store
         self.registry = registry
@@ -23,6 +25,7 @@ class ActionRunner:
         self.retriever = retriever
         self.planner = planner
         self.executor = executor
+        self.perfit_actions = perfit_actions
 
     def run(self, action_type: str, input_payload: dict[str, Any]) -> ActionRun:
         action = self.registry.get_by_type(action_type)
@@ -44,6 +47,24 @@ class ActionRunner:
 
         workflow = self.planner.plan(skill_plan)
         workflow_run = self.executor.run(workflow)
+        try:
+            generated_content = (
+                self.perfit_actions.execute(action_type, input_payload)
+                if self.perfit_actions and self.perfit_actions.supports(action_type)
+                else {
+                    "summary": f"{action.name} completed with {len(workflow_run.steps)} workflow steps.",
+                    "workflow_output": workflow_run.output,
+                }
+            )
+        except Exception as exc:
+            run = ActionRun(
+                action_type=action_type,
+                input_payload=input_payload,
+                workflow_run_id=workflow_run.id,
+                status="failed",
+                output={"error": str(exc), "workflow_run_id": workflow_run.id},
+            )
+            return self.store.action_runs.upsert(run)
         artifact = ActionArtifact(
             action_run_id="pending",
             artifact_type=action_type,
@@ -52,8 +73,7 @@ class ActionRunner:
                 "action_type": action_type,
                 "task_type": task_type,
                 "workflow_run_id": workflow_run.id,
-                "summary": f"{action.name} completed with {len(workflow_run.steps)} workflow steps.",
-                "workflow_output": workflow_run.output,
+                **generated_content,
             },
             evidence_ids=input_payload.get("evidence_ids", []),
             confidence=0.75 if input_payload.get("evidence_ids") else 0.5,
