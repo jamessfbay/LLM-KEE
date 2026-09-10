@@ -37,6 +37,20 @@ def test_operation_receipt_is_idempotent_and_rejects_hash_conflict(tmp_path: Pat
         store.begin(conflicting)
 
 
+def test_operation_receipt_serializes_same_idempotency_key(tmp_path: Path):
+    payload = json.loads((Path(__file__).parent / "fixtures" / "runtime_command_v1.json").read_text())
+    command = RuntimeCommand.model_validate(payload)
+    first_store = OperationReceiptStore(tmp_path, ".llm_kee")
+    second_store = OperationReceiptStore(tmp_path, ".llm_kee")
+
+    receipt = first_store.begin(command)
+    with pytest.raises(RuntimeError, match="already running"):
+        second_store.begin(command)
+
+    first_store.complete(receipt, "succeeded", {"artifact_path": "/tmp/result.json"})
+    assert second_store.begin(command).status == "succeeded"
+
+
 def test_action_run_supports_runtime_event_execution(tmp_path: Path):
     payload_path = tmp_path / "action.json"
     payload_path.write_text(json.dumps({"projectId": "project-1"}), encoding="utf-8")

@@ -31,16 +31,9 @@ class LearningGate:
                 final_score=aggregate.final_score,
                 required_actions=["Attach evidence IDs or source references."],
             )
-        if aggregate.final_score >= 0.85 and aggregate.agreement_level >= 0.8:
-            return LearningDecision(
-                proposal_id=aggregate.proposal_id,
-                decision=LearningDecisionType.AUTO_APPLY,
-                reason="Evaluators agree with high confidence.",
-                final_score=aggregate.final_score,
-            )
         return LearningDecision(
             proposal_id=aggregate.proposal_id,
             decision=LearningDecisionType.PENDING_REVIEW,
-            reason="Proposal is plausible but needs human review.",
+            reason="Screening results are advisory; explicit review and an external experiment are required.",
             final_score=aggregate.final_score,
         )

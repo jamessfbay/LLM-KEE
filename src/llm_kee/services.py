@@ -96,10 +96,14 @@ class KEEEngine:
         self.mape_analyzer = MAPEAnalyzer()
         self.mape_planner = MAPEPlanner()
         self._ensure_defaults()
+        self.kg_client = self._build_kg_client()
         self.evaluators = self._build_evaluators()
         self.aggregator = EvaluationAggregator()
         self.gate = LearningGate()
-        self.safe_apply = SafeApplyService(self._build_kg_client())
+        self.safe_apply = SafeApplyService(
+            self.kg_client,
+            allow_direct_apply=settings.runtime_mode == "standalone",
+        )
         self.mape_executor = MAPEExecutor(
             self.store,
             self.action_runner,
@@ -156,7 +160,7 @@ class KEEEngine:
         if config.enable_rule_engine:
             evaluators.append(RuleEngine())
         if config.enable_evidence_checker:
-            evaluators.append(EvidenceChecker())
+            evaluators.append(EvidenceChecker(self._resolve_evidence))
         if config.enable_conflict_checker:
             evaluators.append(ConflictChecker())
         if config.enable_behavior_signal:
@@ -167,6 +171,29 @@ class KEEEngine:
             if judge.enabled
         )
         return evaluators
+
+    def _resolve_evidence(self, evidence_id: str) -> dict[str, Any] | None:
+        result = self.kg_client.get_object("evidence", evidence_id)
+        if result.get("status") == "unconfigured":
+            return None
+        verification = result.get("verification")
+        if (
+            not isinstance(verification, dict)
+            or verification.get("valid") is not True
+            or verification.get("review_state") not in {"approved", "auto_accepted"}
+        ):
+            return None
+        evidence = verification.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            return None
+        item = evidence[0]
+        if not isinstance(item, dict) or not item.get("source_content_hash"):
+            return None
+        if not isinstance(item.get("quote_start"), int) or not isinstance(item.get("quote_end"), int):
+            return None
+        if item["quote_end"] <= item["quote_start"]:
+            return None
+        return {**verification, "valid": True}
 
     def accept_feedback(self, feedback: UserFeedback) -> tuple[UserFeedback, UpdateProposal]:
         feedback.status = "interpreted"
@@ -340,6 +367,8 @@ class KEEEngine:
         return results, aggregate
 
     def approve_proposal(self, proposal: UpdateProposal) -> UpdateProposal:
+        if self.settings.runtime_mode == "nox_adapter":
+            raise RuntimeError("NOX adapter mode does not allow KEE to approve or activate proposals")
         proposal.status = ProposalStatus.APPROVED
         proposal.updated_at = now_utc()
         return self.store.proposals.upsert(proposal)

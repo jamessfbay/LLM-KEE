@@ -347,6 +347,7 @@ class ImprovementAction(StoredModel):
 
 
 class ImprovementProposal(StoredModel):
+    contract_version: str = "improvement-proposal/2.0"
     id: str = Field(default_factory=lambda: new_id("improvement"))
     improvement_type: str
     title: str
@@ -356,6 +357,13 @@ class ImprovementProposal(StoredModel):
     actions: list[ImprovementAction] = Field(default_factory=list)
     status: str = "pending_review"
     rationale: str = ""
+    hypothesis: str = ""
+    base_version: str | None = None
+    evidence_snapshot_hash: str | None = None
+    success_metrics: list[dict[str, Any]] = Field(default_factory=list)
+    guardrails: list[dict[str, Any]] = Field(default_factory=list)
+    evaluation_plan: dict[str, Any] = Field(default_factory=dict)
+    rollback_plan: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

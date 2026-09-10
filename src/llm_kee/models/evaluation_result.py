@@ -1,10 +1,12 @@
 from pydantic import Field
+from typing import Literal
 
 from llm_kee.models.base import StoredModel, new_id
 from llm_kee.models.enums import EvaluationDecision, EvaluatorType
 
 
 class EvaluationResult(StoredModel):
+    contract_version: Literal["evaluation-observation/2.0"] = "evaluation-observation/2.0"
     id: str = Field(default_factory=lambda: new_id("eval"))
     proposal_id: str
     evaluator_type: EvaluatorType
@@ -14,6 +16,11 @@ class EvaluationResult(StoredModel):
     decision: EvaluationDecision
     concerns: list[str] = Field(default_factory=list)
     recommended_changes: list[str] = Field(default_factory=list)
+    criterion: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+    scorer_version: str = "legacy-screening/1"
+    score_semantics: Literal["ordinal_screening_not_probability"] = "ordinal_screening_not_probability"
 
 
 class AggregatedEvaluation(StoredModel):

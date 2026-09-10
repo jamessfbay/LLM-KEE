@@ -1,5 +1,9 @@
 # LLM-KEE (Knowledge Evolution Engine)
 
+When used with NOX, LLM-KEE is a candidate planner and proposal-only learner.
+Set `LLM_KEE_RUNTIME_MODE=nox_adapter` to disable direct apply. Screening scores
+are advisory and require an external experiment plus explicit activation.
+
 LLM-KEE is a self-improving knowledge engine for LLM-based systems. It helps an AI system understand user intent, ground work in evidence, evolve knowledge safely, and improve from agent failures.
 
 The project implements the controlled knowledge-evolution loop from the product framework:
@@ -41,7 +45,7 @@ flowchart TD
     D4 --> E
     D5 --> E
     E --> F[Learning Gate]
-    F -->|auto_apply / approved| G[Safe Apply Planner]
+    F -->|explicit standalone approval| G[Safe Apply Planner]
     F -->|pending_review| H[Human Review]
     F -->|need_more_evidence| I[Evidence Gap Queue]
     F -->|conflict_review| J[Conflict Review]
@@ -104,7 +108,7 @@ flowchart TD
 - JSON file storage for local prototyping.
 - Offline proposal generation from structured feedback.
 - Multi-evaluator layer with rule, evidence, conflict, behavior, and configurable LLM-judge evaluators.
-- Learning Gate decisions: `auto_apply`, `pending_review`, `need_more_evidence`, `conflict_review`, and `reject`.
+- Learning Gate decisions for new proposals: `pending_review`, `need_more_evidence`, `conflict_review`, and `reject`; legacy `auto_apply` records remain readable but are never newly issued.
 - Safe apply planner with dry-run fallback and an optional direct LLM-KG Python adapter for approved proposals.
 - Generic eight-graph models for knowledge, evidence, skills, evaluation, evolution, intent, failures, and improvements.
 - Default skill/action registries for evidence retrieval, timeline reconstruction, evidence evaluation, ontology engineering, intelligence packs, timeline rebuilds, and missing/conflict detection.

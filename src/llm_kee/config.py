@@ -96,6 +96,7 @@ class Settings(BaseModel):
     failures: FailuresConfig = Field(default_factory=FailuresConfig)
     improvements: ImprovementsConfig = Field(default_factory=ImprovementsConfig)
     loops: LoopsConfig = Field(default_factory=LoopsConfig)
+    runtime_mode: str = "standalone"
 
 
 def load_settings() -> Settings:
@@ -117,6 +118,7 @@ def load_settings() -> Settings:
     settings.generation_llm.model = os.getenv("LLM_KEE_GENERATION_MODEL", settings.generation_llm.model)
     if os.getenv("LLM_KEE_REQUIRE_LLM") is not None:
         settings.generation_llm.require_llm = _bool(os.getenv("LLM_KEE_REQUIRE_LLM"))
+    settings.runtime_mode = os.getenv("LLM_KEE_RUNTIME_MODE", settings.runtime_mode)
     return settings
 
 

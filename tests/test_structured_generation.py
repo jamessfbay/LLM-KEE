@@ -1,3 +1,7 @@
+import json
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from llm_kee.actions.structured_generation import StructuredGenerationService
@@ -30,6 +34,8 @@ def test_structured_generation_validates_caller_owned_demo_output(monkeypatch):
 
     assert result["record_id"] == "record_1"
     assert result["generation"]["provider"] == "caller_demo_output"
+    assert len(result["generation"]["schema_hash"]) == 64
+    assert result["generation"]["usage"] is None
 
 
 def test_structured_generation_rejects_output_outside_caller_schema(monkeypatch):
@@ -47,6 +53,32 @@ def test_production_mode_requires_configured_llm(monkeypatch):
 
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         service.execute("structured_generation", _payload())
+
+
+def test_openai_generation_uses_model_default_temperature(monkeypatch):
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(_payload()["demo_output"])))],
+            )
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    result = StructuredGenerationService(model="gpt-5-mini", require_llm=True).execute(
+        "structured_generation", _payload()
+    )
+
+    assert result["record_id"] == "record_1"
+    assert "temperature" not in captured
+    assert "exactly match a source_url" in captured["messages"][0]["content"]
 
 
 def test_engine_persists_generic_structured_artifact(tmp_path, monkeypatch):

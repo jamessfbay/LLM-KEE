@@ -59,7 +59,7 @@ def test_knowledge_evolution_loop_wraps_mape_cycle(tmp_path):
     assert cycle.evaluation_ids
     assert cycle.decision_ids
     proposal = engine.store.proposals.get(cycle.proposal_ids[0])
-    assert proposal.status in {ProposalStatus.PENDING_REVIEW, ProposalStatus.APPROVED}
+    assert proposal.status == ProposalStatus.NEED_MORE_EVIDENCE
 
 
 def test_skill_selection_loop_records_intent_workflow_and_evaluation(tmp_path):

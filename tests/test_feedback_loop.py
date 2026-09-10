@@ -49,11 +49,9 @@ def test_evidence_backed_feedback_moves_to_review_or_approval(tmp_path):
     _, aggregate = engine.run_evaluations(proposal)
     decision = engine.store.decisions.list()[0]
 
-    assert aggregate.final_score >= 0.7
-    assert decision.decision in {
-        LearningDecisionType.AUTO_APPLY,
-        LearningDecisionType.PENDING_REVIEW,
-    }
+    assert aggregate.final_score < 0.7
+    assert decision.decision == LearningDecisionType.NEED_MORE_EVIDENCE
+    assert decision.decision != LearningDecisionType.AUTO_APPLY
 
 
 def test_reusable_trace_creates_pattern(tmp_path):

@@ -21,7 +21,7 @@ def test_graph_conflict_signal_runs_action_and_creates_gated_proposal(tmp_path):
     assert cycle.evaluation_ids
     assert cycle.decision_ids
     proposal = engine.store.proposals.get(cycle.proposal_ids[0])
-    assert proposal.status in {ProposalStatus.CONFLICT_REVIEW, ProposalStatus.PENDING_REVIEW}
+    assert proposal.status == ProposalStatus.NEED_MORE_EVIDENCE
     assert engine.store.action_runs.get(cycle.action_run_ids[0]).action_type == "detect_missing_or_conflicting_information"
 
 

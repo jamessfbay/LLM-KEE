@@ -27,6 +27,9 @@ class LLMJudge:
             score=0.5,
             decision=EvaluationDecision.REVIEW,
             concerns=[f"LLM judge provider is not implemented: {self.config.provider}"],
+            criterion="advisory_semantic_review",
+            unknowns=["provider_not_implemented"],
+            scorer_version="llm-advisory-judge/2",
         )
 
     def _evaluate_openai(self, proposal: UpdateProposal) -> EvaluationResult:
@@ -79,6 +82,9 @@ class LLMJudge:
                 decision=EvaluationDecision(decision),
                 concerns=list(payload.get("concerns") or []),
                 recommended_changes=list(payload.get("recommended_changes") or []),
+                criterion="advisory_semantic_review",
+                evidence_refs=proposal.evidence_ids,
+                scorer_version=f"llm-advisory-judge/2:{self.config.provider}:{self.config.model}",
             )
         except Exception as exc:
             result = self.mock.evaluate(proposal)

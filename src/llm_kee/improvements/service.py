@@ -23,6 +23,14 @@ class ImprovementService:
             actions=[action],
             status="pending_review",
             rationale=f"Generated from failure type {failure.failure_type}.",
+            hypothesis=(
+                f"Applying {improvement_type} will reduce recurrence of failure type "
+                f"{failure.failure_type} without violating configured guardrails."
+            ),
+            success_metrics=[{"metric": "failure_recurrence", "direction": "decrease"}],
+            guardrails=[{"metric": "authorization_violations", "maximum": 0}],
+            evaluation_plan={"required": True, "mode": "offline_then_shadow"},
+            rollback_plan={"required": True, "target": "base_version"},
         )
         return self.store.improvement_proposals.upsert(proposal)
 

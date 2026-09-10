@@ -4,11 +4,18 @@ from llm_kee.planning import UpdatePlanner
 
 
 class SafeApplyService:
-    def __init__(self, kg_client: KGClient, planner: UpdatePlanner | None = None) -> None:
+    def __init__(self, kg_client: KGClient, planner: UpdatePlanner | None = None, *, allow_direct_apply: bool = True) -> None:
         self.kg_client = kg_client
         self.planner = planner or UpdatePlanner()
+        self.allow_direct_apply = allow_direct_apply
 
     def apply(self, proposal: UpdateProposal) -> dict:
+        if not self.allow_direct_apply:
+            return {
+                "status": "rejected",
+                "message": "Direct apply is disabled; NOX owns authorization, execution, and activation.",
+                "proposal_id": proposal.id,
+            }
         if proposal.status != ProposalStatus.APPROVED:
             return {
                 "status": "rejected",
