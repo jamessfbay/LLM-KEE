@@ -78,7 +78,37 @@ def test_openai_generation_uses_model_default_temperature(monkeypatch):
 
     assert result["record_id"] == "record_1"
     assert "temperature" not in captured
+    assert captured["max_completion_tokens"] == 16384
     assert "exactly match a source_url" in captured["messages"][0]["content"]
+
+
+def test_openai_generation_retries_invalid_schema_output_with_feedback(monkeypatch):
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            content = {"summary": "Missing its required identifier."} if len(calls) == 1 else _payload()["demo_output"]
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(content)))],
+            )
+
+    class FakeOpenAI:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+
+    result = StructuredGenerationService(model="gpt-5-mini", require_llm=True).execute(
+        "structured_generation", _payload()
+    )
+
+    assert result["record_id"] == "record_1"
+    assert len(calls) == 2
+    correction = json.loads(calls[1]["messages"][1]["content"])
+    assert correction["validation_error"] == "'record_id' is a required property"
+    assert correction["previous_invalid_output"] == {"summary": "Missing its required identifier."}
 
 
 def test_engine_persists_generic_structured_artifact(tmp_path, monkeypatch):
@@ -96,5 +126,5 @@ def test_engine_persists_generic_structured_artifact(tmp_path, monkeypatch):
     artifact = engine.store.action_artifacts.get(run.artifact_ids[0])
     assert artifact.artifact_type == "structured_generation"
     assert artifact.content["record_id"] == "record_1"
-    assert artifact.content["generation"]["prompt_version"] == "structured-generation-v1"
+    assert artifact.content["generation"]["prompt_version"] == "structured-generation-v2"
     assert artifact.evidence_ids == ["evidence_1"]
