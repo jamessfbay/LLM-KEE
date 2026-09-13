@@ -76,3 +76,26 @@ def test_action_run_supports_runtime_event_execution(tmp_path: Path):
     assert output["action_run_ids"] == ["action-run-1"]
     assert output["artifact_ids"] == ["artifact-1"]
     assert emitted[0][0] == ("step.progress", "running")
+
+
+def test_failed_action_run_raises_the_original_error(tmp_path: Path):
+    payload_path = tmp_path / "action.json"
+    payload_path.write_text(json.dumps({"projectId": "project-1"}), encoding="utf-8")
+    args = SimpleNamespace(
+        command="action",
+        action_command="run",
+        action_type="structured_generation",
+        json_file=str(payload_path),
+    )
+    run = SimpleNamespace(
+        id="action-run-1",
+        status="failed",
+        artifact_ids=[],
+        workflow_run_id="workflow-1",
+        output={"error": "schema validation failed: run_id is required"},
+    )
+    engine = SimpleNamespace(run_action=lambda action_type, payload: run)
+    emitter = SimpleNamespace(emit=lambda *values, **kwargs: None)
+
+    with pytest.raises(RuntimeError, match="run_id is required"):
+        _execute_runtime_command(args, engine, None, emitter)

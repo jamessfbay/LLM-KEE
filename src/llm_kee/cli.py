@@ -1,4 +1,5 @@
 import argparse
+import builtins
 import json
 from pathlib import Path
 import sys
@@ -390,7 +391,10 @@ def _execute_runtime_command(args, engine: KEEEngine, command, emitter: RuntimeE
     if args.command == "action" and args.action_command == "run":
         emitter.emit("step.progress", "running", payload={"phase": "plan_action"})
         run = engine.run_action(args.action_type, read_json(args.json_file))
-        status = "succeeded" if run.status == "completed" and run.artifact_ids else "insufficient"
+        if run.status != "completed":
+            error = run.output.get("error") if isinstance(run.output, dict) else None
+            raise builtins.RuntimeError(str(error or f"KEE action {args.action_type} failed"))
+        status = "succeeded" if run.artifact_ids else "insufficient"
         return {
             "action_run_ids": [run.id],
             "artifact_ids": list(run.artifact_ids),
