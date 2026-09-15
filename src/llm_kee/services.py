@@ -16,6 +16,11 @@ from llm_kee.evaluation import (
     RuleEngine,
 )
 from llm_kee.evolution import EvolutionService
+from llm_kee.experience import (
+    ActorLearningHandoff,
+    GovernedExperienceLearning,
+    ImmutableMemorySnapshot,
+)
 from llm_kee.gates import LearningGate
 from llm_kee.intent import IntentDetector, default_intent_patterns
 from llm_kee.failures import FailureDetector
@@ -131,6 +136,7 @@ class KEEEngine:
             self.improvements,
         )
         self.memory = MemoryDreamingService(self.store, self.settings.workspace)
+        self.experience_learning = GovernedExperienceLearning()
 
     def _ensure_defaults(self) -> None:
         if self.settings.skills.register_defaults:
@@ -330,6 +336,18 @@ class KEEEngine:
 
     def review_dream_proposal(self, proposal_id: str, approve: bool, notes: str | None = None) -> object:
         return self.memory.review_dream_proposal(proposal_id, approve=approve, notes=notes)
+
+    def distill_actor_experience(self, handoff: ActorLearningHandoff | dict[str, Any]) -> list[object]:
+        """Create bounded memory candidates from the terminal actor handoff only."""
+        return self.experience_learning.distiller.distill(handoff)
+
+    def process_broad_learning_batch(
+        self,
+        handoffs: list[ActorLearningHandoff],
+        snapshot: ImmutableMemorySnapshot,
+    ) -> object:
+        """Distill parallel branches from one snapshot, then reconcile sequentially."""
+        return self.experience_learning.process_broad_batch(handoffs, snapshot)
 
     def save_trace(self, trace: ReasoningTrace) -> ReasoningTrace:
         self.store.traces.upsert(trace)
