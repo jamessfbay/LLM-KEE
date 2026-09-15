@@ -27,6 +27,41 @@ Knowledge Graph + Evidence Graph + Skill Graph + Evaluation Graph + Evolution Gr
   -> Agent Improvement Loop
 ```
 
+## Governed Experience Learning (NOX Runtime v3.5)
+
+The v3.5 integration adds a proposal-only learning lifecycle inspired by
+recursive practice systems while keeping NOX's deterministic authority
+boundary:
+
+```text
+ActorLearningHandoff
+  -> Experience Distiller
+  -> Memory Reconciler
+  -> independent Experience Evaluator
+  -> Curriculum Planner (only when more evidence is needed)
+  -> Replay / sandbox practice owned by NOX
+  -> FrozenMemoryArtifact candidate
+  -> NOX release pipeline
+```
+
+- Only the terminal actor's signed handoff can start distillation. Its model,
+  prompt, toolset, handoff mode, effect proof, verifier report and outcome stay
+  bound to the experience through immutable IDs and hashes.
+- Experience is conditional: every candidate declares a condition, action,
+  expected outcome, applicability, uncertainty, causal status, counterexamples
+  and invalidation conditions.
+- Broad practice branches read one immutable memory snapshot and reconcile only
+  after every branch completes; revisions merge sequentially. Deep practice
+  cannot complete until the original target is retried and independently
+  verified.
+- KEE can freeze a candidate artifact, but it cannot publish it, grant
+  permission, alter safety policy or execute an external action. Replay,
+  Shadow, Canary, activation and rollback remain NOX responsibilities.
+- `python -m llm_kee.experience.worker` consumes one configured
+  tenant/domain scope and submits each Distiller + Reconciler result as a
+  single retry-safe NOX transaction. It receives only a scoped learner token;
+  no database, model, admin, execution, or release credential is required.
+
 ## System Flow
 
 ```mermaid
