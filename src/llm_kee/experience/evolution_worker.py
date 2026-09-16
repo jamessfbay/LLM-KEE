@@ -56,6 +56,9 @@ class EvolutionConfig:
     schema_hash: str
     retrieval_version: str = "kee-conditional-memory-v1"
     interval_seconds: int = 60
+    practice_runner_url: str | None = None
+    practice_runner_token: str | None = None
+    practice_timeout_seconds: int = 120
 
     @classmethod
     def from_env(cls) -> "EvolutionConfig":
@@ -67,6 +70,12 @@ class EvolutionConfig:
             raise ValueError(
                 "NOX_KEE_TENANT_ID, NOX_KEE_DOMAIN, NOX_EXPERIENCE_EVALUATOR_TOKEN "
                 "and a 64-character NOX_KEE_SCHEMA_HASH are required"
+            )
+        practice_url = os.environ.get("NOX_KEE_PRACTICE_RUNNER_URL", "").strip()
+        practice_token = os.environ.get("NOX_KEE_PRACTICE_RUNNER_TOKEN", "").strip()
+        if bool(practice_url) != bool(practice_token):
+            raise ValueError(
+                "NOX_KEE_PRACTICE_RUNNER_URL and NOX_KEE_PRACTICE_RUNNER_TOKEN must be configured together"
             )
         return cls(
             base_url=os.environ.get("NOX_V3_INTERNAL_URL", "http://state-engine:4318").rstrip("/"),
@@ -80,6 +89,11 @@ class EvolutionConfig:
             ),
             interval_seconds=max(
                 5, int(os.environ.get("NOX_KEE_EVOLUTION_INTERVAL_SECONDS", "60"))
+            ),
+            practice_runner_url=practice_url.rstrip("/") or None,
+            practice_runner_token=practice_token or None,
+            practice_timeout_seconds=max(
+                5, min(900, int(os.environ.get("NOX_KEE_PRACTICE_TIMEOUT_SECONDS", "120")))
             ),
         )
 
@@ -105,6 +119,113 @@ class EvolutionClient:
         if not isinstance(value, dict):
             raise RuntimeError("NOX evolution endpoint returned a non-object")
         return value
+
+
+class SandboxPracticeRunner:
+    """Use a separately credentialed sandbox/replay service for practice."""
+
+    def __init__(
+        self,
+        url: str,
+        token: str,
+        timeout_seconds: int = 120,
+        opener: Callable[..., Any] = urlopen,
+    ) -> None:
+        if not url.startswith(("http://", "https://")) or not token.strip():
+            raise ValueError("A valid practice runner URL and token are required")
+        self.url = url.rstrip("/")
+        self.token = token
+        self.timeout_seconds = timeout_seconds
+        self.opener = opener
+
+    def __call__(
+        self, plan: dict[str, Any], task: dict[str, Any]
+    ) -> ActorLearningHandoff | None:
+        payload = json.dumps(
+            {
+                "protocol_version": "3.5",
+                "mode": "historical_replay_or_sandbox",
+                "plan": plan,
+                "task": task,
+            },
+            separators=(",", ":"),
+        ).encode()
+        request = Request(
+            f"{self.url}/v1/practice",
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+                "X-NOX-Actor": "kee:sandbox-practice-runner-v1",
+            },
+        )
+        try:
+            with self.opener(request, timeout=self.timeout_seconds) as response:
+                value = json.loads(response.read())
+        except HTTPError as error:
+            if error.code in (404, 409, 425):
+                return None
+            raise
+        if not isinstance(value, dict):
+            raise RuntimeError("Practice runner returned a non-object")
+        if value.get("status") in ("pending", "not_ready"):
+            return None
+        raw = value.get("handoff")
+        if not isinstance(raw, dict):
+            raise RuntimeError("Practice runner returned no sealed actor handoff")
+        handoff = ActorLearningHandoff.model_validate(raw)
+        if handoff.tenant_id != plan.get("tenant_id") or handoff.domain != plan.get("domain"):
+            raise RuntimeError("Practice runner handoff crossed tenant or domain scope")
+        return handoff
+
+    def evaluate_rollout(self, assignment: dict[str, Any]) -> dict[str, Any] | None:
+        """Replay both frozen memory arms and return an independently measured observation."""
+        request = Request(
+            f"{self.url}/v1/memory-rollout",
+            data=json.dumps(
+                {
+                    "protocol_version": "3.5",
+                    "mode": "paired_historical_replay_or_shadow",
+                    "assignment": assignment,
+                },
+                separators=(",", ":"),
+            ).encode(),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+                "X-NOX-Actor": "kee:sandbox-practice-runner-v1",
+            },
+        )
+        try:
+            with self.opener(request, timeout=self.timeout_seconds) as response:
+                value = json.loads(response.read())
+        except HTTPError as error:
+            if error.code in (404, 409, 425):
+                return None
+            raise
+        if not isinstance(value, dict) or value.get("status") in ("pending", "not_ready"):
+            return None
+        observation = value.get("observation")
+        if not isinstance(observation, dict):
+            raise RuntimeError("Practice runner returned no memory rollout observation")
+        for key in ("release_id", "run_id", "phase", "arm"):
+            if observation.get(key) != assignment.get(key):
+                raise RuntimeError("Memory rollout observation does not match its assignment")
+        expected_id = (
+            assignment.get("shadow_artifact_id")
+            if assignment.get("arm") == "shadow_candidate"
+            else assignment.get("formal_artifact_id")
+        )
+        expected_hash = (
+            assignment.get("shadow_artifact_hash")
+            if assignment.get("arm") == "shadow_candidate"
+            else assignment.get("formal_artifact_hash")
+        )
+        if observation.get("artifact_id") != expected_id or observation.get("artifact_hash") != expected_hash:
+            raise RuntimeError("Memory rollout observation changed the frozen artifact")
+        return observation
 
 
 class EvolutionWorker:
@@ -146,6 +267,41 @@ class EvolutionWorker:
             f"/api/v3.5/kee-evaluator-heartbeat?{self.scope}",
             {"status": status, "detail": detail},
         )
+
+    def collect_rollout_observations(self, events: list[dict[str, Any]]) -> int:
+        evaluator = getattr(self.practice_runner, "evaluate_rollout", None)
+        if not callable(evaluator):
+            return 0
+        observed = {
+            item["subject_id"]
+            for item in events
+            if item.get("event_type") == "memory.rollout_observed"
+        }
+        changed = 0
+        after = 0
+        while True:
+            page = self.request(
+                "GET",
+                f"/api/v3.5/memory-rollout-assignments?{self.scope}&after={after}&limit=200",
+                None,
+            )
+            for assignment in page.get("items", []):
+                if assignment.get("run_id") in observed:
+                    continue
+                observation = evaluator(assignment)
+                if observation is None:
+                    continue
+                self.request(
+                    "POST",
+                    f"/api/v3.5/memory-rollout-observations?{self.scope}",
+                    observation,
+                )
+                observed.add(assignment["run_id"])
+                changed += 1
+            next_cursor = page.get("next")
+            if next_cursor is None:
+                return changed
+            after = int(next_cursor)
 
     def active_memory(self) -> tuple[ImmutableMemorySnapshot, str, str]:
         binding = self.config.memory_binding
@@ -257,7 +413,7 @@ class EvolutionWorker:
                 next((revision.candidate_ids for revision in revisions if revision.id == evaluation.revision_id), [])
             )
         }
-        changed = 0
+        changed = self.collect_rollout_observations(events)
         for revision in revisions:
             if revision.operation == MemoryRevisionOperation.NO_CHANGE or revision.id in artifact_revisions:
                 continue
@@ -341,7 +497,16 @@ def main() -> None:
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     config = EvolutionConfig.from_env()
-    worker = EvolutionWorker(config)
+    practice_runner = (
+        SandboxPracticeRunner(
+            config.practice_runner_url,
+            config.practice_runner_token or "",
+            config.practice_timeout_seconds,
+        )
+        if config.practice_runner_url
+        else None
+    )
+    worker = EvolutionWorker(config, practice_runner=practice_runner)
     while True:
         try:
             changed = worker.run_once()

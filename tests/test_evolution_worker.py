@@ -1,4 +1,12 @@
-from llm_kee.experience.evolution_worker import EvolutionConfig, EvolutionWorker
+import json
+
+import pytest
+
+from llm_kee.experience.evolution_worker import (
+    EvolutionConfig,
+    EvolutionWorker,
+    SandboxPracticeRunner,
+)
 from llm_kee.experience.hashing import seal_model
 from llm_kee.experience.curriculum import practice_binding_ref
 from llm_kee.experience.models import (
@@ -122,3 +130,104 @@ def test_evolution_outputs_are_retry_deterministic() -> None:
     first = worker.evaluator.evaluate(batch.revisions[0], list(batch.candidates), dataset, [source])
     second = worker.evaluator.evaluate(batch.revisions[0], list(batch.candidates), dataset, [source])
     assert first == second
+
+
+def test_sandbox_practice_runner_rejects_cross_tenant_handoff() -> None:
+    handoff = source_handoff("a" * 64)
+    values = handoff.model_dump(mode="json", exclude={"handoff_hash"})
+    values["tenant_id"] = "other"
+    values["actor_binding"] = handoff.actor_binding
+    payload = seal_model(ActorLearningHandoff, "handoff_hash", **values).model_dump(mode="json")
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps({"status": "completed", "handoff": payload}).encode()
+
+    runner = SandboxPracticeRunner(
+        "http://practice-runner:8090",
+        "practice-token",
+        opener=lambda *_args, **_kwargs: Response(),
+    )
+    with pytest.raises(RuntimeError, match="crossed tenant or domain"):
+        runner({"tenant_id": "tenant-a", "domain": "financial_disclosure"}, {"id": "task"})
+
+
+def test_sandbox_practice_runner_treats_pending_as_no_result() -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"status":"pending"}'
+
+    runner = SandboxPracticeRunner(
+        "http://practice-runner:8090",
+        "practice-token",
+        opener=lambda *_args, **_kwargs: Response(),
+    )
+    assert runner({"tenant_id": "tenant-a", "domain": "financial_disclosure"}, {"id": "task"}) is None
+
+
+def test_evolution_worker_collects_only_assignment_bound_rollout_evidence() -> None:
+    assignment = {
+        "release_id": "release-a",
+        "run_id": "run-a",
+        "phase": "shadow",
+        "arm": "shadow_candidate",
+        "formal_artifact_id": "baseline",
+        "formal_artifact_hash": "a" * 64,
+        "shadow_artifact_id": "candidate",
+        "shadow_artifact_hash": "b" * 64,
+    }
+    observation = {
+        **{key: assignment[key] for key in ("release_id", "run_id", "phase", "arm")},
+        "completed": True,
+        "evidence_complete": True,
+        "requires_review": False,
+        "audited": True,
+        "policy_violations": 0,
+        "unauthorized_actions": 0,
+        "missed_escalation": False,
+        "major_correction": False,
+        "latency_ms": 20,
+        "artifact_id": "candidate",
+        "artifact_hash": "b" * 64,
+        "outcome_hash": "c" * 64,
+    }
+
+    class Runner:
+        def evaluate_rollout(self, actual):
+            assert actual == assignment
+            return observation
+
+    submitted = []
+
+    def request(method, path, payload):
+        if method == "GET":
+            return {"items": [assignment], "next": None}
+        submitted.append((path, payload))
+        return {"observation_hash": "d" * 64}
+
+    worker = EvolutionWorker(
+        EvolutionConfig(
+            "http://state", "token", "tenant-a", "financial_disclosure", "memory-a", "f" * 64
+        ),
+        request=request,
+        practice_runner=Runner(),
+    )
+    assert worker.collect_rollout_observations([]) == 1
+    assert submitted == [
+        (
+            "/api/v3.5/memory-rollout-observations?tenant_id=tenant-a&domain=financial_disclosure",
+            observation,
+        )
+    ]
