@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-kee"
-version = "0.1.0"
+version = "0.2.0"
 description = "Knowledge Evolution Engine for evidence-backed LLM knowledge systems"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,7 @@ llm = ["openai>=1.0"]
 
 [project.scripts]
 llm-kee = "llm_kee.cli:main"
+llm-kee-rpc = "llm_kee.rpc:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

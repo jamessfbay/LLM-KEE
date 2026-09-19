@@ -405,3 +405,16 @@ weight = 1.0
 ```
 
 Use `provider = "mock"` for deterministic offline tests. Use `provider = "openai"` with `pip install -e ".[llm]"` and `api_key_env = "OPENAI_API_KEY"` for the first real LLM judge. If the environment variable or SDK is missing, LLM-KEE records a review concern and falls back safely instead of interrupting the MAPE-K cycle. Anthropic and Gemini remain reserved provider names behind the same `JudgeConfig` structure.
+
+## Persistent NOX Runtime v3.5 RPC
+
+```bash
+NOX_ENGINE_RPC_TOKEN='<random-secret-at-least-32-characters>' \
+  llm-kee-rpc --host 127.0.0.1 --port 7403 --workspace /srv/nox/engines/kee
+```
+
+The service accepts only `planner/plan` and proposal-only `learner/propose`.
+Planner requests may receive a one-use loopback NOX model-gateway token; the
+token is removed from the process environment after the request and is never
+stored in a receipt. KEE cannot receive executor permits or activate its own
+memory proposals.
