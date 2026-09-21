@@ -86,6 +86,8 @@ def test_evolution_worker_waits_for_independent_practice_then_freezes_artifact()
             }
         assert method == "POST" and payload is not None
         submitted.append((path, payload))
+        if "practice-handoffs" in path:
+            return {"handoff": payload, "promotion_authority": False}
         kind = (
             "experience.evaluated" if "experience-evaluations" in path else
             "curriculum.planned" if "curriculum-plans" in path else
@@ -110,8 +112,15 @@ def test_evolution_worker_waits_for_independent_practice_then_freezes_artifact()
         request=request,
         practice_runner=practice_runner,
     )
-    assert worker.run_once() == 3  # bootstrap evaluation, curriculum, completed practice
+    assert worker.run_once() == 4  # bootstrap evaluation, curriculum, two bounded practices
     assert not any("memory-artifacts" in path for path, _ in submitted)
+    practice_handoff_index = next(
+        index for index, (path, _) in enumerate(submitted) if "practice-handoffs" in path
+    )
+    practice_run_index = next(
+        index for index, (path, _) in enumerate(submitted) if "practice-runs" in path
+    )
+    assert practice_handoff_index < practice_run_index
     assert worker.run_once() == 2  # independent evaluation and immutable artifact
     artifacts = [payload for path, payload in submitted if "memory-artifacts" in path]
     assert len(artifacts) == 1
@@ -175,6 +184,83 @@ def test_sandbox_practice_runner_treats_pending_as_no_result() -> None:
         opener=lambda *_args, **_kwargs: Response(),
     )
     assert runner({"tenant_id": "tenant-a", "domain": "financial_disclosure"}, {"id": "task"}) is None
+
+
+def test_sandbox_practice_runner_rejects_promotable_handoffs() -> None:
+    handoff = source_handoff("a" * 64)
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps(
+                {"status": "completed", "handoff": handoff.model_dump(mode="json")}
+            ).encode()
+
+    runner = SandboxPracticeRunner(
+        "http://practice-runner:8090",
+        "practice-token",
+        opener=lambda *_args, **_kwargs: Response(),
+    )
+    with pytest.raises(RuntimeError, match="promotable"):
+        runner(
+            {"tenant_id": "tenant-a", "domain": "financial_disclosure"},
+            {"id": "task"},
+        )
+
+
+def test_memory_rollout_uses_the_credential_free_replay_service() -> None:
+    assignment = {
+        "release_id": "release-a",
+        "run_id": "run-a",
+        "phase": "shadow",
+        "arm": "shadow_candidate",
+        "formal_artifact_id": "baseline",
+        "formal_artifact_hash": "a" * 64,
+        "shadow_artifact_id": "candidate",
+        "shadow_artifact_hash": "b" * 64,
+        "replay_status": "ready",
+        "replay_fixture": {"fixture_hash": "c" * 64},
+    }
+    observation = {
+        **{key: assignment[key] for key in ("release_id", "run_id", "phase", "arm")},
+        "artifact_id": "candidate",
+        "artifact_hash": "b" * 64,
+        "replay_fixture_hash": "c" * 64,
+    }
+    seen = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return json.dumps({"status": "completed", "observation": observation}).encode()
+
+    def opener(request, **_kwargs):
+        seen["url"] = request.full_url
+        seen["authorization"] = request.headers["Authorization"]
+        return Response()
+
+    runner = SandboxPracticeRunner(
+        "http://practice-runner:8090",
+        "practice-token",
+        memory_replay_url="http://connectome-runtime:8080",
+        memory_replay_token="replay-token",
+        opener=opener,
+    )
+    assert runner.evaluate_rollout(assignment) == observation
+    assert seen == {
+        "url": "http://connectome-runtime:8080/v1/memory-replay",
+        "authorization": "Bearer replay-token",
+    }
 
 
 def test_evolution_worker_collects_only_assignment_bound_rollout_evidence() -> None:

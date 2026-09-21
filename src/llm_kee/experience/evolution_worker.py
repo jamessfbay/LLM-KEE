@@ -24,6 +24,7 @@ from llm_kee.experience.curriculum import CurriculumPlanner, PracticeCoordinator
 from llm_kee.experience.evaluator import EVALUATOR_BUNDLE_HASH, ExperienceEvaluator
 from llm_kee.experience.hashing import canonical_hash, seal_model
 from llm_kee.experience.models import (
+    ActorHandoffMode,
     ActorLearningHandoff,
     EvaluationCase,
     ExperienceCandidate,
@@ -58,6 +59,8 @@ class EvolutionConfig:
     interval_seconds: int = 60
     practice_runner_url: str | None = None
     practice_runner_token: str | None = None
+    memory_replay_url: str | None = None
+    memory_replay_token: str | None = None
     practice_timeout_seconds: int = 120
 
     @classmethod
@@ -77,6 +80,12 @@ class EvolutionConfig:
             raise ValueError(
                 "NOX_KEE_PRACTICE_RUNNER_URL and NOX_KEE_PRACTICE_RUNNER_TOKEN must be configured together"
             )
+        replay_url = os.environ.get("NOX_KEE_MEMORY_REPLAY_URL", "").strip()
+        replay_token = os.environ.get("NOX_KEE_MEMORY_REPLAY_TOKEN", "").strip()
+        if bool(replay_url) != bool(replay_token):
+            raise ValueError(
+                "NOX_KEE_MEMORY_REPLAY_URL and NOX_KEE_MEMORY_REPLAY_TOKEN must be configured together"
+            )
         return cls(
             base_url=os.environ.get("NOX_V3_INTERNAL_URL", "http://state-engine:4318").rstrip("/"),
             token=token,
@@ -92,6 +101,8 @@ class EvolutionConfig:
             ),
             practice_runner_url=practice_url.rstrip("/") or None,
             practice_runner_token=practice_token or None,
+            memory_replay_url=replay_url.rstrip("/") or None,
+            memory_replay_token=replay_token or None,
             practice_timeout_seconds=max(
                 5, min(900, int(os.environ.get("NOX_KEE_PRACTICE_TIMEOUT_SECONDS", "120")))
             ),
@@ -126,21 +137,35 @@ class SandboxPracticeRunner:
 
     def __init__(
         self,
-        url: str,
-        token: str,
+        url: str | None,
+        token: str | None,
         timeout_seconds: int = 120,
+        memory_replay_url: str | None = None,
+        memory_replay_token: str | None = None,
         opener: Callable[..., Any] = urlopen,
     ) -> None:
-        if not url.startswith(("http://", "https://")) or not token.strip():
-            raise ValueError("A valid practice runner URL and token are required")
-        self.url = url.rstrip("/")
+        if bool(url) != bool(token):
+            raise ValueError("Practice runner URL and token must be configured together")
+        if url and not url.startswith(("http://", "https://")):
+            raise ValueError("A valid practice runner URL is required")
+        self.url = url.rstrip("/") if url else None
         self.token = token
         self.timeout_seconds = timeout_seconds
+        if bool(memory_replay_url) != bool(memory_replay_token):
+            raise ValueError("Memory replay URL and token must be configured together")
+        if memory_replay_url and not memory_replay_url.startswith(("http://", "https://")):
+            raise ValueError("A valid memory replay URL is required")
+        if not self.url and not memory_replay_url:
+            raise ValueError("At least one isolated practice or replay service is required")
+        self.memory_replay_url = memory_replay_url.rstrip("/") if memory_replay_url else None
+        self.memory_replay_token = memory_replay_token
         self.opener = opener
 
     def __call__(
         self, plan: dict[str, Any], task: dict[str, Any]
     ) -> ActorLearningHandoff | None:
+        if not self.url or not self.token:
+            return None
         payload = json.dumps(
             {
                 "protocol_version": "3.5",
@@ -177,25 +202,33 @@ class SandboxPracticeRunner:
         handoff = ActorLearningHandoff.model_validate(raw)
         if handoff.tenant_id != plan.get("tenant_id") or handoff.domain != plan.get("domain"):
             raise RuntimeError("Practice runner handoff crossed tenant or domain scope")
+        if handoff.handoff_mode != ActorHandoffMode.RECONSTRUCTED or handoff.promotion_eligible:
+            raise RuntimeError("Practice runner attempted to return a promotable handoff")
         return handoff
 
     def evaluate_rollout(self, assignment: dict[str, Any]) -> dict[str, Any] | None:
         """Replay both frozen memory arms and return an independently measured observation."""
+        if not self.memory_replay_url or not self.memory_replay_token:
+            return None
+        if assignment.get("replay_status") != "ready" or not isinstance(
+            assignment.get("replay_fixture"), dict
+        ):
+            return None
         request = Request(
-            f"{self.url}/v1/memory-rollout",
+            f"{self.memory_replay_url}/v1/memory-replay",
             data=json.dumps(
                 {
-                    "protocol_version": "3.5",
-                    "mode": "paired_historical_replay_or_shadow",
+                    "protocol_version": "3.6",
+                    "mode": "paired_memory_replay",
                     "assignment": assignment,
                 },
                 separators=(",", ":"),
             ).encode(),
             method="POST",
             headers={
-                "Authorization": f"Bearer {self.token}",
+                "Authorization": f"Bearer {self.memory_replay_token}",
                 "Content-Type": "application/json",
-                "X-NOX-Actor": "kee:sandbox-practice-runner-v1",
+                "X-NOX-Actor": "kee:credential-free-memory-replay-v1",
             },
         )
         try:
@@ -225,6 +258,8 @@ class SandboxPracticeRunner:
         )
         if observation.get("artifact_id") != expected_id or observation.get("artifact_hash") != expected_hash:
             raise RuntimeError("Memory rollout observation changed the frozen artifact")
+        if observation.get("replay_fixture_hash") != assignment["replay_fixture"].get("fixture_hash"):
+            raise RuntimeError("Memory rollout observation changed the sealed replay fixture")
         return observation
 
 
@@ -461,6 +496,11 @@ class EvolutionWorker:
                         )
                         if handoff is None:
                             continue
+                        self.request(
+                            "POST",
+                            f"/api/v3.5/practice-handoffs?{self.scope}",
+                            handoff.model_dump(mode="json"),
+                        )
                         completed = self.practice.complete_run(pending[task.id], handoff)
                         self.request(
                             "POST", f"/api/v3.5/practice-runs?{self.scope}",
@@ -502,8 +542,10 @@ def main() -> None:
             config.practice_runner_url,
             config.practice_runner_token or "",
             config.practice_timeout_seconds,
+            config.memory_replay_url,
+            config.memory_replay_token,
         )
-        if config.practice_runner_url
+        if config.practice_runner_url or config.memory_replay_url
         else None
     )
     worker = EvolutionWorker(config, practice_runner=practice_runner)

@@ -28,7 +28,7 @@ from llm_kee.experience import (
     TaskVerdict,
 )
 from llm_kee.experience.hashing import canonical_hash, seal_model
-from llm_kee.experience.curriculum import practice_binding_ref
+from llm_kee.experience.curriculum import candidate_practice_claims, practice_binding_ref
 
 
 def make_handoff(
@@ -318,8 +318,21 @@ def test_deep_curriculum_ends_with_verified_target_retry() -> None:
         memory_snapshot_hash=snapshot.snapshot_hash,
         fixture_refs=["fixture-1"],
     )
+    assert len(plan.practice_tasks) == 2
+    assert plan.budget.max_reasoning_calls == 4
+    assert plan.budget.max_cost_microusd == 100_000
     assert plan.practice_tasks[-1].requires_target_retry is True
     assert "Retry the original target" in plan.practice_tasks[-1].objective
+    expected_claims = candidate_practice_claims(result.candidates[0])
+    assert all(fragment in plan.hypotheses for fragment in expected_claims)
+    assert all(
+        fragment in plan.practice_tasks[0].discriminates_hypotheses
+        for fragment in expected_claims
+    )
+    assert all(
+        fragment in plan.practice_tasks[-1].discriminates_hypotheses
+        for fragment in expected_claims
+    )
 
     coordinator = PracticeCoordinator()
     runs = coordinator.begin_batch(plan)
@@ -347,6 +360,26 @@ def test_deep_curriculum_ends_with_verified_target_retry() -> None:
     )
     with pytest.raises(ValueError, match="verified target retry"):
         coordinator.validate_batch(plan, [*completed[:-1], failed_target])
+
+
+def test_curriculum_caps_plan_wide_actor_verifier_budget() -> None:
+    broad = CurriculumPlanner._tasks(
+        LearningStage.BROAD,
+        "target",
+        ["hypothesis-a", "hypothesis-b", "hypothesis-c"],
+        ["fixture-1"],
+        "a" * 64,
+    )
+    deep = CurriculumPlanner._tasks(
+        LearningStage.DEEP,
+        "target",
+        ["hypothesis-a", "hypothesis-b", "hypothesis-c"],
+        ["fixture-1"],
+        "b" * 64,
+    )
+    assert len(broad) == 2
+    assert len(deep) == 2
+    assert deep[-1].requires_target_retry is True
 
 
 def test_non_terminal_practice_run_rejects_any_terminal_field() -> None:
