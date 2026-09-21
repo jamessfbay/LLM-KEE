@@ -54,6 +54,15 @@ ActorLearningHandoff
   after every branch completes; revisions merge sequentially. Deep practice
   cannot complete until the original target is retried and independently
   verified.
+- Autonomous curricula seal every complete candidate claim into bounded,
+  hash-bound chunks. NOX reconstructs and compares those claims with canonical
+  candidate records, and the isolated Actor/Verifier receives the actual
+  condition, action and expected outcome. A generic or ID-only practice cannot
+  approve memory.
+- The practice gateway generates a response schema from the sealed candidate
+  hashes. Actor and Verifier must each assess every claim exactly once as
+  supported, refuted or insufficient; both must explicitly support it at
+  confidence 0.85 or higher before the practice can pass.
 - KEE can freeze a candidate artifact, but it cannot publish it, grant
   permission, alter safety policy or execute an external action. Replay,
   Shadow, Canary, activation and rollback remain NOX responsibilities.
@@ -61,6 +70,13 @@ ActorLearningHandoff
   tenant/domain scope and submits each Distiller + Reconciler result as a
   single retry-safe NOX transaction. It receives only a scoped learner token;
   no database, model, admin, execution, or release credential is required.
+- `python -m llm_kee.experience.evolution_worker` may use two separately
+  scoped services: `NOX_KEE_PRACTICE_RUNNER_URL` for bounded LLM Actor/Verifier
+  practice, and `NOX_KEE_MEMORY_REPLAY_URL` for credential-isolated paired
+  Connectome replay. Practice handoffs must be reconstructed and
+  non-promotable; the state engine records them only to close their frozen
+  curriculum run. Replay observations must retain the state-engine fixture
+  digest and artifact binding before they can enter Shadow or Canary metrics.
 
 ## System Flow
 

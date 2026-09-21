@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Iterable
 
 from llm_kee.experience.hashing import canonical_hash, seal_model
@@ -18,12 +19,50 @@ from llm_kee.experience.models import (
 
 
 SAFE_PRACTICE_ACTIONS = ["replay", "sandbox_read", "generate_internal_report"]
+_CANDIDATE_CLAIM_PREFIX = "nox:candidate-claim-v1|"
+_CANDIDATE_CLAIM_CHUNK = 1024
 
 
 def practice_binding_ref(curriculum_id: str, practice_task_id: str) -> str:
     return "nox:practice:" + canonical_hash(
         {"curriculum_id": curriculum_id, "practice_task_id": practice_task_id}
     )
+
+
+def candidate_practice_claims(candidate: ExperienceCandidate) -> list[str]:
+    """Seal the complete bounded claim into existing curriculum hypotheses.
+
+    Chunks remain below the v3.5 string bound. The State Engine reconstructs
+    and compares the payload with the canonical stored candidate before a
+    practice plan is admitted, so an evaluator cannot test a generic proxy.
+    """
+    payload = json.dumps(
+        {
+            "id": candidate.id,
+            "candidate_hash": candidate.candidate_hash,
+            "kind": str(candidate.kind),
+            "causal_status": str(candidate.causal_status),
+            "condition": candidate.condition,
+            "action": candidate.action,
+            "expected_outcome": candidate.expected_outcome,
+            "mechanism_hypothesis": candidate.mechanism_hypothesis,
+            "applicability": candidate.applicability,
+            "invalidation_conditions": candidate.invalidation_conditions,
+            "uncertainty": candidate.uncertainty,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    chunks = [
+        payload[index : index + _CANDIDATE_CLAIM_CHUNK]
+        for index in range(0, len(payload), _CANDIDATE_CLAIM_CHUNK)
+    ]
+    total = len(chunks)
+    return [
+        f"{_CANDIDATE_CLAIM_PREFIX}{candidate.candidate_hash}|{index + 1}|{total}|{chunk}"
+        for index, chunk in enumerate(chunks)
+    ]
 
 
 class CurriculumPlanner:
@@ -47,7 +86,10 @@ class CurriculumPlanner:
             for item in candidates
         ):
             raise ValueError("curriculum candidates must match evaluation scope")
-        hypotheses = self._hypotheses(evaluation, candidates)
+        claim_fragments = [
+            fragment for candidate in candidates for fragment in candidate_practice_claims(candidate)
+        ]
+        hypotheses = list(dict.fromkeys(claim_fragments + list(evaluation.concerns)))
         plan_identity = canonical_hash(
             {
                 "evaluation_hash": evaluation.evaluation_hash,
@@ -57,10 +99,19 @@ class CurriculumPlanner:
                 "fixture_refs": list(dict.fromkeys(fixture_refs)),
             }
         )
-        tasks = self._tasks(stage, target_objective, hypotheses, fixture_refs, plan_identity)
+        tasks = self._tasks(
+            stage,
+            target_objective,
+            hypotheses,
+            fixture_refs,
+            plan_identity,
+            claim_fragments,
+        )
         selected_budget = budget or CurriculumBudget(
             max_practice_tasks=max(4, len(tasks)),
-            max_reasoning_calls=max(2, len(tasks)),
+            # Every practice task has an isolated Actor call and Verifier call.
+            # This is a plan-wide bound, not a per-task allowance.
+            max_reasoning_calls=max(2, len(tasks) * 2),
             max_cost_microusd=100_000,
             max_wall_time_ms=900_000,
         )
@@ -90,40 +141,71 @@ class CurriculumPlanner:
         )
 
     @staticmethod
-    def _hypotheses(
-        evaluation: ExperienceEvaluation,
-        candidates: list[ExperienceCandidate],
-    ) -> list[str]:
-        hypotheses = list(dict.fromkeys(evaluation.concerns))
-        if not hypotheses:
-            hypotheses = [
-                f"The bounded experience {candidate.id} transfers under its declared applicability."
-                for candidate in candidates
-            ]
-        return hypotheses
-
-    @staticmethod
     def _tasks(
         stage: LearningStage,
         target: str,
         hypotheses: list[str],
         fixture_refs: list[str],
         plan_identity: str,
+        claim_fragments: list[str] | None = None,
     ) -> list[PracticeTask]:
         tasks: list[PracticeTask] = []
-        for index, hypothesis in enumerate(hypotheses, start=1):
+        claims = list(dict.fromkeys(claim_fragments or []))
+        other_hypotheses = [item for item in hypotheses if item not in set(claims)]
+        # The autonomous verifier permits at most two tasks under the fixed
+        # 100k micro-USD plan budget (two bounded calls per task). Additional
+        # hypotheses remain recorded on the plan and can be scheduled in a
+        # later curriculum rather than silently multiplying this budget.
+        if claims:
             tasks.append(
                 PracticeTask(
-                    id=f"practice_task_{canonical_hash({'plan': plan_identity, 'sequence': index})[:24]}",
-                    sequence=index,
-                    objective=f"Discriminate hypothesis: {hypothesis}",
+                    id=f"practice_task_{canonical_hash({'plan': plan_identity, 'sequence': 1})[:24]}",
+                    sequence=1,
+                    objective="Verify or falsify every frozen candidate experience against immutable fixtures.",
                     fixture_refs=list(dict.fromkeys(fixture_refs)),
                     allowed_internal_actions=list(SAFE_PRACTICE_ACTIONS),
                     success_criteria=[
+                        "every sealed candidate claim is evaluated against independent evidence",
+                        "counterexamples and invalidation boundaries are reported",
                         "independent verifier produces a terminal verdict",
                         "effect proof and outcome hashes are present",
                     ],
-                    discriminates_hypotheses=[hypothesis],
+                    discriminates_hypotheses=claims,
+                    requires_target_retry=False,
+                )
+            )
+        else:
+            hypothesis_limit = 1 if stage == LearningStage.DEEP else 2
+            for index, hypothesis in enumerate(hypotheses[:hypothesis_limit], start=1):
+                tasks.append(
+                    PracticeTask(
+                        id=f"practice_task_{canonical_hash({'plan': plan_identity, 'sequence': index})[:24]}",
+                        sequence=index,
+                        objective=f"Discriminate hypothesis: {hypothesis}",
+                        fixture_refs=list(dict.fromkeys(fixture_refs)),
+                        allowed_internal_actions=list(SAFE_PRACTICE_ACTIONS),
+                        success_criteria=[
+                            "independent verifier produces a terminal verdict",
+                            "effect proof and outcome hashes are present",
+                        ],
+                        discriminates_hypotheses=[hypothesis],
+                        requires_target_retry=False,
+                    )
+                )
+        if claims and stage == LearningStage.BROAD and other_hypotheses:
+            tasks.append(
+                PracticeTask(
+                    id=f"practice_task_{canonical_hash({'plan': plan_identity, 'sequence': 2})[:24]}",
+                    sequence=2,
+                    objective="Search specifically for counterexamples and declared failure boundaries.",
+                    fixture_refs=list(dict.fromkeys(fixture_refs)),
+                    allowed_internal_actions=list(SAFE_PRACTICE_ACTIONS),
+                    success_criteria=[
+                        "each unresolved concern is supported or falsified by independent evidence",
+                        "independent verifier produces a terminal verdict",
+                        "effect proof and outcome hashes are present",
+                    ],
+                    discriminates_hypotheses=claims + other_hypotheses,
                     requires_target_retry=False,
                 )
             )
@@ -139,7 +221,7 @@ class CurriculumPlanner:
                         "original target is retried from a clean environment",
                         "independent verifier confirms the final target result",
                     ],
-                    discriminates_hypotheses=list(hypotheses),
+                    discriminates_hypotheses=list(dict.fromkeys(claims + hypotheses)),
                     requires_target_retry=True,
                 )
             )
