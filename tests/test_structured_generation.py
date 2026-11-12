@@ -111,6 +111,70 @@ def test_openai_generation_retries_invalid_schema_output_with_feedback(monkeypat
     assert correction["previous_invalid_output"] == {"summary": "Missing its required identifier."}
 
 
+def test_request_can_route_structured_generation_to_configured_gemini_model(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "candidates": [
+                        {"content": {"parts": [{"text": json.dumps(_payload()["demo_output"])}]}}
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 20,
+                        "candidatesTokenCount": 8,
+                        "totalTokenCount": 28,
+                    },
+                }
+            ).encode()
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.header_items())
+        captured["body"] = json.loads(request.data.decode())
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-test-model")
+    monkeypatch.setattr("llm_kee.actions.structured_generation.urlopen", fake_urlopen)
+    payload = _payload()
+    payload["generation_provider"] = "gemini"
+
+    result = StructuredGenerationService(model="openai-default", require_llm=True).execute(
+        "structured_generation", payload
+    )
+
+    assert result["generation"]["provider"] == "gemini"
+    assert result["generation"]["model"] == "gemini-test-model"
+    assert result["generation"]["usage"] == {
+        "input_tokens": 20,
+        "output_tokens": 8,
+        "total_tokens": 28,
+    }
+    assert captured["url"].endswith("/models/gemini-test-model:generateContent")
+    assert captured["headers"]["X-goog-api-key"] == "gemini-test-key"
+    assert captured["body"]["generationConfig"]["responseMimeType"] == "application/json"
+    assert "maxLength" not in json.dumps(captured["body"]["generationConfig"]["responseJsonSchema"])
+
+
+def test_explicit_gemini_route_requires_gemini_configuration(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    payload = _payload()
+    payload["generation_provider"] = "gemini"
+
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY and GEMINI_MODEL"):
+        StructuredGenerationService(require_llm=False).execute("structured_generation", payload)
+
+
 def test_engine_persists_generic_structured_artifact(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     engine = KEEEngine(
