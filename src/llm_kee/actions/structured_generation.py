@@ -263,7 +263,34 @@ def _gemini_schema(value: Any) -> Any:
         return [_gemini_schema(item) for item in value]
     if not isinstance(value, dict):
         return value
-    return {key: _gemini_schema(item) for key, item in value.items() if key in supported}
+    converted: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in {"properties", "$defs"} and isinstance(item, dict):
+            converted[key] = {name: _gemini_schema(schema) for name, schema in item.items()}
+        elif key in supported:
+            converted[key] = _gemini_schema(item)
+    if "const" in value:
+        constant = value["const"]
+        converted["enum"] = [constant]
+        if "type" not in converted:
+            converted["type"] = _json_schema_type(constant)
+    return converted
+
+
+def _json_schema_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "string"
 
 
 def _strip_json_fence(value: str) -> str:

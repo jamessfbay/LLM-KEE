@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from llm_kee.actions.structured_generation import StructuredGenerationService
+from llm_kee.actions.structured_generation import StructuredGenerationService, _gemini_schema
 from llm_kee.config import GenerationLLMConfig, Settings
 from llm_kee.services import KEEEngine
 
@@ -162,7 +162,46 @@ def test_request_can_route_structured_generation_to_configured_gemini_model(monk
     assert captured["url"].endswith("/models/gemini-test-model:generateContent")
     assert captured["headers"]["X-goog-api-key"] == "gemini-test-key"
     assert captured["body"]["generationConfig"]["responseMimeType"] == "application/json"
-    assert "maxLength" not in json.dumps(captured["body"]["generationConfig"]["responseJsonSchema"])
+    response_schema = captured["body"]["generationConfig"]["responseJsonSchema"]
+    assert "maxLength" not in json.dumps(response_schema)
+    assert set(response_schema["properties"]) == {"record_id", "summary"}
+    assert response_schema["properties"]["record_id"] == {
+        "enum": ["record_1"],
+        "type": "string",
+    }
+    assert response_schema["properties"]["summary"] == {"type": "string"}
+
+
+def test_gemini_schema_preserves_required_property_and_definition_names():
+    schema = {
+        "type": "object",
+        "properties": {
+            "referenced_point": {"type": "string", "minLength": 8},
+            "reply": {"type": "string", "maxLength": 280},
+            "channel": {"const": "public_reply"},
+        },
+        "required": ["referenced_point", "reply", "channel"],
+        "$defs": {
+            "Evidence": {
+                "type": "object",
+                "properties": {"source_url": {"type": "string"}},
+                "required": ["source_url"],
+            }
+        },
+    }
+
+    converted = _gemini_schema(schema)
+
+    assert set(converted["properties"]) == {"referenced_point", "reply", "channel"}
+    assert converted["properties"]["referenced_point"] == {"type": "string"}
+    assert converted["properties"]["reply"] == {"type": "string"}
+    assert converted["properties"]["channel"] == {
+        "enum": ["public_reply"],
+        "type": "string",
+    }
+    assert converted["$defs"]["Evidence"]["properties"] == {
+        "source_url": {"type": "string"}
+    }
 
 
 def test_explicit_gemini_route_requires_gemini_configuration(monkeypatch):
